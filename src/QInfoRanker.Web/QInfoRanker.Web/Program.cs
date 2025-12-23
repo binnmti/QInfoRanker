@@ -1,5 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using QInfoRanker.Core.Entities;
+using QInfoRanker.Core.Interfaces;
+using QInfoRanker.Infrastructure.Services;
+using QInfoRanker.Infrastructure.Collectors;
 using QInfoRanker.Infrastructure.Data;
+using QInfoRanker.Infrastructure.Scoring;
 using QInfoRanker.Web.Client.Pages;
 using QInfoRanker.Web.Components;
 
@@ -17,6 +22,19 @@ builder.Services.AddDbContext<QInfoRankerDbContext>(options =>
         options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
     }
 });
+
+// Add HttpClient for collectors
+builder.Services.AddHttpClient();
+
+// Add collectors
+builder.Services.AddTransient<ICollector, HackerNewsCollector>();
+builder.Services.AddSingleton<CollectorFactory>();
+
+// Add scoring service
+builder.Services.AddScoped<IScoringService, HybridScoringService>();
+
+// Add article collection service
+builder.Services.AddScoped<ArticleCollectionService>();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

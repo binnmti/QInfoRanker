@@ -1,0 +1,196 @@
+@page "/collect"
+@using Microsoft.EntityFrameworkCore
+@using QInfoRanker.Core.Entities
+@using QInfoRanker.Infrastructure.Services
+@using QInfoRanker.Infrastructure.Data
+@inject QInfoRankerDbContext DbContext
+@inject ArticleCollectionService CollectionService
+@rendermode InteractiveServer
+
+<PageTitle>Collect Articles</PageTitle>
+
+<h1>Article Collection</h1>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="CollectAll" disabled="@isCollecting">
+        @if (isCollecting)
+        {
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            <span>Collecting...</span>
+        }
+        else
+        {
+            <span class="bi bi-download"></span>
+            <span> Collect All Articles</span>
+        }
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">
+        @statusMessage
+    </div>
+}
+
+@if (keywords == null)
+{
+    <p><em>Loading keywords...</em></p>
+}
+else if (keywords.Count == 0)
+{
+    <div class="alert alert-warning">
+        No active keywords found. Please add keywords first.
+    </div>
+}
+else
+{
+    <h3>Active Keywords</h3>
+    <div class="list-group mb-4">
+        @foreach (var keyword in keywords)
+        {
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="mb-1">@keyword.Term</h5>
+                        <small class="text-muted">@keyword.Sources.Count source(s) configured</small>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" 
+                            @onclick="() => CollectForKeyword(keyword)" 
+                            disabled="@isCollecting">
+                        Collect
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (collectionHistory.Any())
+{
+    <h3>Collection History</h3>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Keyword</th>
+                <th>Articles Collected</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var entry in collectionHistory.OrderByDescending(e => e.Timestamp))
+            {
+                <tr>
+                    <td>@entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@entry.KeywordTerm</td>
+                    <td>@entry.ArticlesCollected</td>
+                    <td>
+                        <span class="badge @(entry.Success ? "bg-success" : "bg-danger")">
+                            @(entry.Success ? "Success" : "Failed")
+                        </span>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Keyword> keywords = new();
+    private bool isCollecting = false;
+    private string statusMessage = string.Empty;
+    private bool isError = false;
+    private List<CollectionEntry> collectionHistory = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadKeywordsAsync();
+    }
+
+    private async Task LoadKeywordsAsync()
+    {
+        keywords = await DbContext.Keywords
+            .Include(k => k.Sources)
+            .Where(k => k.IsActive)
+            .ToListAsync();
+    }
+
+    private async Task CollectAll()
+    {
+        isCollecting = true;
+        isError = false;
+        statusMessage = "Starting collection for all keywords...";
+
+        try
+        {
+            var totalCollected = await CollectionService.CollectArticlesAsync();
+            
+            statusMessage = $"Successfully collected {totalCollected} new article(s)!";
+            
+            collectionHistory.Add(new CollectionEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                KeywordTerm = "All Keywords",
+                ArticlesCollected = totalCollected,
+                Success = true
+            });
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            statusMessage = $"Error during collection: {ex.Message}";
+        }
+        finally
+        {
+            isCollecting = false;
+        }
+    }
+
+    private async Task CollectForKeyword(Keyword keyword)
+    {
+        isCollecting = true;
+        isError = false;
+        statusMessage = $"Collecting articles for '{keyword.Term}'...";
+
+        try
+        {
+            var collected = await CollectionService.CollectForKeywordAsync(keyword);
+            
+            statusMessage = $"Successfully collected {collected} new article(s) for '{keyword.Term}'!";
+            
+            collectionHistory.Add(new CollectionEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                KeywordTerm = keyword.Term,
+                ArticlesCollected = collected,
+                Success = true
+            });
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            statusMessage = $"Error collecting for '{keyword.Term}': {ex.Message}";
+            
+            collectionHistory.Add(new CollectionEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                KeywordTerm = keyword.Term,
+                ArticlesCollected = 0,
+                Success = false
+            });
+        }
+        finally
+        {
+            isCollecting = false;
+        }
+    }
+
+    private class CollectionEntry
+    {
+        public DateTime Timestamp { get; set; }
+        public string KeywordTerm { get; set; } = string.Empty;
+        public int ArticlesCollected { get; set; }
+        public bool Success { get; set; }
+    }
+}
