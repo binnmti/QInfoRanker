@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using QInfoRanker.Core.Entities;
 
 namespace QInfoRanker.Infrastructure.Collectors;
@@ -9,8 +10,12 @@ namespace QInfoRanker.Infrastructure.Collectors;
 /// </summary>
 public class HackerNewsCollector : BaseCollector
 {
-    public HackerNewsCollector(HttpClient httpClient) : base(httpClient)
+    private readonly ILogger<HackerNewsCollector> _logger;
+
+    public HackerNewsCollector(HttpClient httpClient, ILogger<HackerNewsCollector> logger) 
+        : base(httpClient)
     {
+        _logger = logger;
     }
 
     public override bool CanHandle(SourceType sourceType)
@@ -65,8 +70,7 @@ public class HackerNewsCollector : BaseCollector
         }
         catch (Exception ex)
         {
-            // Log error in production
-            Console.WriteLine($"Error collecting from Hacker News: {ex.Message}");
+            _logger.LogError(ex, "Error collecting articles from Hacker News for keyword: {Keyword}", keyword);
         }
 
         return articles;

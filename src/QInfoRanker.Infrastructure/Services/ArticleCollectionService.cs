@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using QInfoRanker.Core.Entities;
 using QInfoRanker.Core.Interfaces;
 using QInfoRanker.Infrastructure.Collectors;
@@ -14,15 +15,18 @@ public class ArticleCollectionService
     private readonly QInfoRankerDbContext _dbContext;
     private readonly CollectorFactory _collectorFactory;
     private readonly IScoringService _scoringService;
+    private readonly ILogger<ArticleCollectionService> _logger;
 
     public ArticleCollectionService(
         QInfoRankerDbContext dbContext,
         CollectorFactory collectorFactory,
-        IScoringService scoringService)
+        IScoringService scoringService,
+        ILogger<ArticleCollectionService> logger)
     {
         _dbContext = dbContext;
         _collectorFactory = collectorFactory;
         _scoringService = scoringService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -63,7 +67,8 @@ public class ArticleCollectionService
             var collector = _collectorFactory.GetCollector(source.Type);
             if (collector == null)
             {
-                Console.WriteLine($"No collector found for source type: {source.Type}");
+                _logger.LogWarning("No collector found for source type: {SourceType} (Source: {SourceName})", 
+                    source.Type, source.Name);
                 continue;
             }
 
@@ -105,7 +110,8 @@ public class ArticleCollectionService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error collecting from {source.Name}: {ex.Message}");
+                _logger.LogError(ex, "Error collecting articles from source: {SourceName} for keyword: {Keyword}", 
+                    source.Name, keyword.Term);
             }
         }
 

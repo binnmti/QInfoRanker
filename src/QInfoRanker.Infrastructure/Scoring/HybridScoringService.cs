@@ -14,8 +14,10 @@ public class HybridScoringService : IScoringService
 
     public Task<double> ScoreArticleAsync(Article article, bool includeContent = false)
     {
-        // TODO: Implement LLM-based scoring when Azure OpenAI is configured
-        // For now, return a placeholder score based on article properties
+        // NOTE: This is a placeholder implementation until Azure OpenAI integration is complete.
+        // Current scoring uses simple heuristics based on article metadata.
+        // TODO: Replace with actual LLM-based scoring using Azure OpenAI GPT models
+        // with structured prompts evaluating technical importance, novelty, impact, and quality.
         
         double llmScore = 50.0; // Default mid-range score
         

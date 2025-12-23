@@ -135,8 +135,8 @@ public class QInfoRankerDbContext : DbContext
             {
                 Id = 4,
                 Name = "arXiv",
-                Url = "http://export.arxiv.org/",
-                SearchUrlTemplate = "http://export.arxiv.org/api/query?search_query={keyword}",
+                Url = "https://export.arxiv.org/",
+                SearchUrlTemplate = "https://export.arxiv.org/api/query?search_query={keyword}",
                 Type = SourceType.API,
                 HasNativeScore = false,
                 AuthorityWeight = 0.9,
