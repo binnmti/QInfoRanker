@@ -1,0 +1,134 @@
+@page "/ranking"
+@using Microsoft.EntityFrameworkCore
+@using QInfoRanker.Core.Entities
+@using QInfoRanker.Infrastructure.Data
+@inject QInfoRankerDbContext DbContext
+@rendermode InteractiveServer
+
+<PageTitle>Ranking</PageTitle>
+
+<h1>Article Ranking</h1>
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <label class="form-label">Time Period:</label>
+        <select class="form-select" @bind="period" @bind:after="LoadRankingAsync">
+            <option value="day">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+            <option value="all">All Time</option>
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Limit:</label>
+        <select class="form-select" @bind="topCount" @bind:after="LoadRankingAsync">
+            <option value="10">Top 10</option>
+            <option value="25">Top 25</option>
+            <option value="50">Top 50</option>
+            <option value="100">Top 100</option>
+        </select>
+    </div>
+</div>
+
+@if (rankedArticles == null)
+{
+    <p><em>Loading...</em></p>
+}
+else if (rankedArticles.Count == 0)
+{
+    <div class="alert alert-info">
+        No articles found for the selected period.
+    </div>
+}
+else
+{
+    <div class="alert alert-success mb-3">
+        Showing Top @rankedArticles.Count Articles for @GetPeriodText()
+    </div>
+
+    <div class="list-group">
+        @{
+            int rank = 1;
+            foreach (var article in rankedArticles)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-primary me-2" style="font-size: 1.2em; min-width: 50px;">
+                                    #@rank
+                                </span>
+                                <h5 class="mb-0">
+                                    <a href="@article.Url" target="_blank">@article.Title</a>
+                                </h5>
+                            </div>
+                            
+                            @if (!string.IsNullOrEmpty(article.Summary))
+                            {
+                                <p class="mb-2 text-muted">@article.Summary</p>
+                            }
+                            
+                            <div class="d-flex gap-2 flex-wrap">
+                                <span class="badge bg-secondary">@article.Source.Name</span>
+                                <span class="badge bg-success">Final Score: @article.FinalScore.ToString("F2")</span>
+                                @if (article.NativeScore.HasValue)
+                                {
+                                    <span class="badge bg-info">Native: @article.NativeScore.Value</span>
+                                }
+                                @if (article.LlmScore.HasValue)
+                                {
+                                    <span class="badge bg-warning text-dark">LLM: @article.LlmScore.Value.ToString("F1")</span>
+                                }
+                                <small class="text-muted ms-2">
+                                    Published: @article.PublishedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                rank++;
+            }
+        }
+    </div>
+}
+
+@code {
+    private List<Article> rankedArticles = new();
+    private string period = "week";
+    private int topCount = 25;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRankingAsync();
+    }
+
+    private async Task LoadRankingAsync()
+    {
+        var cutoffDate = period switch
+        {
+            "day" => DateTime.UtcNow.AddDays(-1),
+            "week" => DateTime.UtcNow.AddDays(-7),
+            "month" => DateTime.UtcNow.AddMonths(-1),
+            _ => DateTime.MinValue
+        };
+
+        rankedArticles = await DbContext.Articles
+            .Include(a => a.Source)
+            .Where(a => a.PublishedAt >= cutoffDate)
+            .OrderByDescending(a => a.FinalScore)
+            .Take(topCount)
+            .ToListAsync();
+    }
+
+    private string GetPeriodText()
+    {
+        return period switch
+        {
+            "day" => "Today",
+            "week" => "This Week",
+            "month" => "This Month",
+            "all" => "All Time",
+            _ => "Selected Period"
+        };
+    }
+}

@@ -1,0 +1,158 @@
+﻿@page "/"
+@using Microsoft.EntityFrameworkCore
+@using QInfoRanker.Core.Entities
+@using QInfoRanker.Infrastructure.Data
+@inject QInfoRankerDbContext DbContext
+@rendermode InteractiveServer
+
+<PageTitle>QInfoRanker - Dashboard</PageTitle>
+
+<h1>QInfoRanker</h1>
+<p class="lead">Keyword-Based Information Aggregator & Ranking Tool</p>
+
+@if (stats == null)
+{
+    <p><em>Loading dashboard...</em></p>
+}
+else
+{
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">Keywords</h5>
+                    <h2 class="text-primary">@stats.TotalKeywords</h2>
+                    <small class="text-muted">@stats.ActiveKeywords active</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">Sources</h5>
+                    <h2 class="text-success">@stats.TotalSources</h2>
+                    <small class="text-muted">@stats.ActiveSources active</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">Articles</h5>
+                    <h2 class="text-info">@stats.TotalArticles</h2>
+                    <small class="text-muted">total collected</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">This Week</h5>
+                    <h2 class="text-warning">@stats.ArticlesThisWeek</h2>
+                    <small class="text-muted">new articles</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Getting Started</h5>
+                </div>
+                <div class="card-body">
+                    <ol>
+                        <li class="mb-2">
+                            <strong>Add Keywords:</strong> Go to the <a href="/keywords">Keywords</a> page to add search terms 
+                            (e.g., "量子コンピュータ", "quantum computing")
+                        </li>
+                        <li class="mb-2">
+                            <strong>Configure Sources:</strong> Visit the <a href="/sources">Sources</a> page to review 
+                            and configure information sources
+                        </li>
+                        <li class="mb-2">
+                            <strong>Collect Articles:</strong> Articles will be collected automatically, or you can start 
+                            collection manually
+                        </li>
+                        <li>
+                            <strong>View Rankings:</strong> Check the <a href="/ranking">Ranking</a> page to see top-scored articles
+                        </li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Recent Top Articles</h5>
+                </div>
+                <div class="card-body">
+                    @if (stats.TopArticles.Any())
+                    {
+                        <div class="list-group">
+                            @foreach (var article in stats.TopArticles)
+                            {
+                                <a href="@article.Url" target="_blank" class="list-group-item list-group-item-action">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">@article.Title</h6>
+                                        <small>
+                                            <span class="badge bg-primary">@article.FinalScore.ToString("F1")</span>
+                                        </small>
+                                    </div>
+                                    <small class="text-muted">@article.Source.Name</small>
+                                </a>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted">No articles collected yet. Start by adding keywords and sources!</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private DashboardStats? stats;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatsAsync();
+    }
+
+    private async Task LoadStatsAsync()
+    {
+        var weekAgo = DateTime.UtcNow.AddDays(-7);
+        
+        stats = new DashboardStats
+        {
+            TotalKeywords = await DbContext.Keywords.CountAsync(),
+            ActiveKeywords = await DbContext.Keywords.CountAsync(k => k.IsActive),
+            TotalSources = await DbContext.Sources.CountAsync(),
+            ActiveSources = await DbContext.Sources.CountAsync(s => s.IsActive),
+            TotalArticles = await DbContext.Articles.CountAsync(),
+            ArticlesThisWeek = await DbContext.Articles.CountAsync(a => a.CollectedAt >= weekAgo),
+            TopArticles = await DbContext.Articles
+                .Include(a => a.Source)
+                .OrderByDescending(a => a.FinalScore)
+                .Take(5)
+                .ToListAsync()
+        };
+    }
+
+    private class DashboardStats
+    {
+        public int TotalKeywords { get; set; }
+        public int ActiveKeywords { get; set; }
+        public int TotalSources { get; set; }
+        public int ActiveSources { get; set; }
+        public int TotalArticles { get; set; }
+        public int ArticlesThisWeek { get; set; }
+        public List<Article> TopArticles { get; set; } = new();
+    }
+}
+

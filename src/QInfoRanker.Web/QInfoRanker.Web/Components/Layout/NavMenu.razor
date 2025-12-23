@@ -1,0 +1,48 @@
+﻿<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">QInfoRanker</a>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="keywords">
+                <span class="bi bi-tags-fill" aria-hidden="true"></span> Keywords
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="sources">
+                <span class="bi bi-globe" aria-hidden="true"></span> Sources
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="articles">
+                <span class="bi bi-file-text-fill" aria-hidden="true"></span> Articles
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="collect">
+                <span class="bi bi-download" aria-hidden="true"></span> Collect
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="ranking">
+                <span class="bi bi-bar-chart-fill" aria-hidden="true"></span> Ranking
+            </NavLink>
+        </div>
+    </nav>
+</div>
+

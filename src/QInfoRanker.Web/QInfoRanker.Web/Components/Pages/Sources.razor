@@ -1,0 +1,221 @@
+@page "/sources"
+@using Microsoft.EntityFrameworkCore
+@using QInfoRanker.Core.Entities
+@using QInfoRanker.Infrastructure.Data
+@inject QInfoRankerDbContext DbContext
+@rendermode InteractiveServer
+
+<PageTitle>Sources</PageTitle>
+
+<h1>Source Management</h1>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="ShowAddDialog">
+        <span class="bi bi-plus-circle"></span> Add Source
+    </button>
+</div>
+
+@if (showAddDialog)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">Add New Source</h5>
+            <div class="mb-3">
+                <label class="form-label">Source Name:</label>
+                <input type="text" class="form-control" @bind="newSource.Name" placeholder="e.g., Google Quantum AI" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">URL:</label>
+                <input type="text" class="form-control" @bind="newSource.Url" placeholder="https://example.com" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Search URL Template:</label>
+                <input type="text" class="form-control" @bind="newSource.SearchUrlTemplate" 
+                       placeholder="https://example.com/search?q={keyword}" />
+                <small class="form-text text-muted">Use {keyword} as placeholder</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Type:</label>
+                <select class="form-select" @bind="newSource.Type">
+                    @foreach (SourceType type in Enum.GetValues(typeof(SourceType)))
+                    {
+                        <option value="@type">@type</option>
+                    }
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Authority Weight (0.0-1.0):</label>
+                <input type="number" step="0.1" min="0" max="1" class="form-control" @bind="newSource.AuthorityWeight" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Keyword (optional):</label>
+                <select class="form-select" @bind="newSource.KeywordId">
+                    <option value="">-- None (Template Source) --</option>
+                    @foreach (var keyword in keywords)
+                    {
+                        <option value="@keyword.Id">@keyword.Term</option>
+                    }
+                </select>
+            </div>
+            <div class="form-check mb-3">
+                <input type="checkbox" class="form-check-input" @bind="newSource.HasNativeScore" />
+                <label class="form-check-label">Has Native Score</label>
+            </div>
+            <button class="btn btn-success" @onclick="AddSource">Save</button>
+            <button class="btn btn-secondary" @onclick="() => showAddDialog = false">Cancel</button>
+        </div>
+    </div>
+}
+
+@if (sources == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <h3>Template Sources</h3>
+    <table class="table table-striped mb-4">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Native Score</th>
+                <th>Authority</th>
+                <th>Active</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var source in sources.Where(s => s.KeywordId == null))
+            {
+                <tr>
+                    <td>
+                        <strong>@source.Name</strong><br />
+                        <small class="text-muted">@source.Url</small>
+                    </td>
+                    <td><span class="badge bg-info">@source.Type</span></td>
+                    <td>@(source.HasNativeScore ? "Yes" : "No")</td>
+                    <td>@source.AuthorityWeight.ToString("F1")</td>
+                    <td>
+                        <span class="badge @(source.IsActive ? "bg-success" : "bg-secondary")">
+                            @(source.IsActive ? "Active" : "Inactive")
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm @(source.IsActive ? "btn-warning" : "btn-success")" 
+                                @onclick="() => ToggleSourceStatus(source)">
+                            @(source.IsActive ? "Deactivate" : "Activate")
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (sources.Any(s => s.KeywordId != null))
+    {
+        <h3>Keyword-Specific Sources</h3>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Keyword</th>
+                    <th>Type</th>
+                    <th>Auto-Discovered</th>
+                    <th>Active</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var source in sources.Where(s => s.KeywordId != null))
+                {
+                    <tr>
+                        <td>
+                            <strong>@source.Name</strong><br />
+                            <small class="text-muted">@source.Url</small>
+                        </td>
+                        <td>@source.Keyword?.Term</td>
+                        <td><span class="badge bg-info">@source.Type</span></td>
+                        <td>@(source.IsAutoDiscovered ? "Yes" : "No")</td>
+                        <td>
+                            <span class="badge @(source.IsActive ? "bg-success" : "bg-secondary")">
+                                @(source.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm @(source.IsActive ? "btn-warning" : "btn-success")" 
+                                    @onclick="() => ToggleSourceStatus(source)">
+                                @(source.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteSource(source)">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private List<Source> sources = new();
+    private List<Keyword> keywords = new();
+    private bool showAddDialog = false;
+    private Source newSource = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        sources = await DbContext.Sources
+            .Include(s => s.Keyword)
+            .OrderBy(s => s.Name)
+            .ToListAsync();
+        
+        keywords = await DbContext.Keywords
+            .Where(k => k.IsActive)
+            .OrderBy(k => k.Term)
+            .ToListAsync();
+    }
+
+    private void ShowAddDialog()
+    {
+        showAddDialog = true;
+        newSource = new Source
+        {
+            IsActive = true,
+            AuthorityWeight = 0.5,
+            Type = SourceType.API
+        };
+    }
+
+    private async Task AddSource()
+    {
+        if (string.IsNullOrWhiteSpace(newSource.Name) || string.IsNullOrWhiteSpace(newSource.Url))
+            return;
+
+        DbContext.Sources.Add(newSource);
+        await DbContext.SaveChangesAsync();
+
+        showAddDialog = false;
+        await LoadDataAsync();
+    }
+
+    private async Task ToggleSourceStatus(Source source)
+    {
+        source.IsActive = !source.IsActive;
+        await DbContext.SaveChangesAsync();
+        await LoadDataAsync();
+    }
+
+    private async Task DeleteSource(Source source)
+    {
+        DbContext.Sources.Remove(source);
+        await DbContext.SaveChangesAsync();
+        await LoadDataAsync();
+    }
+}
