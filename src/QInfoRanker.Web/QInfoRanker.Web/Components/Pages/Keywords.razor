@@ -1,0 +1,138 @@
+@page "/keywords"
+@using Microsoft.EntityFrameworkCore
+@using QInfoRanker.Core.Entities
+@using QInfoRanker.Infrastructure.Data
+@inject QInfoRankerDbContext DbContext
+@rendermode InteractiveServer
+
+<PageTitle>Keywords</PageTitle>
+
+<h1>Keyword Management</h1>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="ShowAddDialog">
+        <span class="bi bi-plus-circle"></span> Add Keyword
+    </button>
+</div>
+
+@if (showAddDialog)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">Add New Keyword</h5>
+            <div class="mb-3">
+                <label class="form-label">Keyword Term:</label>
+                <input type="text" class="form-control" @bind="newKeywordTerm" placeholder="e.g., 量子コンピュータ" />
+            </div>
+            <button class="btn btn-success" @onclick="AddKeyword">Save</button>
+            <button class="btn btn-secondary" @onclick="() => showAddDialog = false">Cancel</button>
+        </div>
+    </div>
+}
+
+@if (keywords == null)
+{
+    <p><em>Loading...</em></p>
+}
+else if (keywords.Count == 0)
+{
+    <div class="alert alert-info">
+        No keywords found. Add your first keyword to start collecting articles!
+    </div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Term</th>
+                <th>Active</th>
+                <th>Created At</th>
+                <th>Sources</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var keyword in keywords)
+            {
+                <tr>
+                    <td><strong>@keyword.Term</strong></td>
+                    <td>
+                        <span class="badge @(keyword.IsActive ? "bg-success" : "bg-secondary")">
+                            @(keyword.IsActive ? "Active" : "Inactive")
+                        </span>
+                    </td>
+                    <td>@keyword.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@keyword.Sources.Count</td>
+                    <td>
+                        <button class="btn btn-sm @(keyword.IsActive ? "btn-warning" : "btn-success")" 
+                                @onclick="() => ToggleKeywordStatus(keyword)">
+                            @(keyword.IsActive ? "Deactivate" : "Activate")
+                        </button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteKeyword(keyword)">
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Keyword> keywords = new();
+    private bool showAddDialog = false;
+    private string newKeywordTerm = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadKeywordsAsync();
+    }
+
+    private async Task LoadKeywordsAsync()
+    {
+        keywords = await DbContext.Keywords
+            .Include(k => k.Sources)
+            .OrderByDescending(k => k.CreatedAt)
+            .ToListAsync();
+    }
+
+    private void ShowAddDialog()
+    {
+        showAddDialog = true;
+        newKeywordTerm = string.Empty;
+    }
+
+    private async Task AddKeyword()
+    {
+        if (string.IsNullOrWhiteSpace(newKeywordTerm))
+            return;
+
+        var keyword = new Keyword
+        {
+            Term = newKeywordTerm.Trim(),
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        DbContext.Keywords.Add(keyword);
+        await DbContext.SaveChangesAsync();
+
+        showAddDialog = false;
+        await LoadKeywordsAsync();
+    }
+
+    private async Task ToggleKeywordStatus(Keyword keyword)
+    {
+        keyword.IsActive = !keyword.IsActive;
+        await DbContext.SaveChangesAsync();
+        await LoadKeywordsAsync();
+    }
+
+    private async Task DeleteKeyword(Keyword keyword)
+    {
+        DbContext.Keywords.Remove(keyword);
+        await DbContext.SaveChangesAsync();
+        await LoadKeywordsAsync();
+    }
+}

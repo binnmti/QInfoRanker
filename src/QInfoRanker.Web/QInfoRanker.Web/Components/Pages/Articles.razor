@@ -1,0 +1,132 @@
+@page "/articles"
+@using Microsoft.EntityFrameworkCore
+@using QInfoRanker.Core.Entities
+@using QInfoRanker.Infrastructure.Data
+@inject QInfoRankerDbContext DbContext
+@rendermode InteractiveServer
+
+<PageTitle>Articles</PageTitle>
+
+<h1>Article Collection</h1>
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <label class="form-label">Filter by Source:</label>
+        <select class="form-select" @bind="selectedSourceId" @bind:after="FilterArticles">
+            <option value="0">All Sources</option>
+            @foreach (var source in sources)
+            {
+                <option value="@source.Id">@source.Name</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Sort by:</label>
+        <select class="form-select" @bind="sortBy" @bind:after="FilterArticles">
+            <option value="score">Final Score</option>
+            <option value="published">Published Date</option>
+            <option value="collected">Collected Date</option>
+        </select>
+    </div>
+</div>
+
+@if (filteredArticles == null)
+{
+    <p><em>Loading...</em></p>
+}
+else if (filteredArticles.Count == 0)
+{
+    <div class="alert alert-info">
+        No articles found. Start collecting articles from your configured sources!
+    </div>
+}
+else
+{
+    <div class="alert alert-success">
+        Showing @filteredArticles.Count article(s)
+    </div>
+
+    <div class="row">
+        @foreach (var article in filteredArticles)
+        {
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <a href="@article.Url" target="_blank">@article.Title</a>
+                        </h5>
+                        <h6 class="card-subtitle mb-2 text-muted">
+                            <span class="badge bg-primary">@article.Source.Name</span>
+                            <span class="badge bg-secondary">Score: @article.FinalScore.ToString("F1")</span>
+                        </h6>
+                        @if (!string.IsNullOrEmpty(article.Summary))
+                        {
+                            <p class="card-text">@article.Summary</p>
+                        }
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                Published: @article.PublishedAt.ToLocalTime().ToString("yyyy-MM-dd")
+                            </small>
+                            @if (article.NativeScore.HasValue)
+                            {
+                                <span class="badge bg-info">Native Score: @article.NativeScore.Value</span>
+                            }
+                            @if (article.LlmScore.HasValue)
+                            {
+                                <span class="badge bg-success">LLM Score: @article.LlmScore.Value.ToString("F1")</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<Article> articles = new();
+    private List<Article> filteredArticles = new();
+    private List<Source> sources = new();
+    private int selectedSourceId = 0;
+    private string sortBy = "score";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        articles = await DbContext.Articles
+            .Include(a => a.Source)
+            .ToListAsync();
+        
+        sources = await DbContext.Sources
+            .OrderBy(s => s.Name)
+            .ToListAsync();
+        
+        await FilterArticles();
+    }
+
+    private Task FilterArticles()
+    {
+        var query = articles.AsEnumerable();
+
+        if (selectedSourceId > 0)
+        {
+            query = query.Where(a => a.SourceId == selectedSourceId);
+        }
+
+        query = sortBy switch
+        {
+            "score" => query.OrderByDescending(a => a.FinalScore),
+            "published" => query.OrderByDescending(a => a.PublishedAt),
+            "collected" => query.OrderByDescending(a => a.CollectedAt),
+            _ => query.OrderByDescending(a => a.FinalScore)
+        };
+
+        filteredArticles = query.ToList();
+        
+        return Task.CompletedTask;
+    }
+}
