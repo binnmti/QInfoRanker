@@ -1,5 +1,6 @@
 using System.ClientModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Azure.AI.OpenAI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -69,6 +70,7 @@ public class SourceRecommendationService : ISourceRecommendationService
                     result.KeywordAnalysis = recommendation.KeywordAnalysis.Reasoning;
                     result.DetectedLanguage = recommendation.KeywordAnalysis.DetectedLanguage;
                     result.DetectedCategory = recommendation.KeywordAnalysis.Category;
+                    result.EnglishAliases = recommendation.KeywordAnalysis.EnglishAliases;
                 }
 
                 // 推薦されたソースと理由を設定
@@ -146,12 +148,16 @@ public class SourceRecommendationService : ISourceRecommendationService
               "keyword_analysis": {
                 "detected_language": "japanese|english|both",
                 "category": "technology|science|business|social|other",
-                "reasoning": "簡潔な理由（日本語）"
+                "reasoning": "簡潔な理由（日本語）",
+                "english_aliases": "英語での検索キーワード（カンマ区切り、2-3個）"
               },
               "sources": [
                 {"name": "ソース名", "recommended": true/false, "reason": "推薦理由（日本語）"}
               ]
             }
+
+            例: キーワード「量子コンピュータ」の場合
+            english_aliases: "quantum computer, quantum computing"
             """;
 
         var messages = new List<ChatMessage>
@@ -217,15 +223,26 @@ public class SourceRecommendationService : ISourceRecommendationService
 
     private class SourceRecommendation
     {
+        [JsonPropertyName("keyword_analysis")]
         public KeywordAnalysis? KeywordAnalysis { get; set; }
+
+        [JsonPropertyName("sources")]
         public List<SourceRec> Sources { get; set; } = new();
     }
 
     private class KeywordAnalysis
     {
+        [JsonPropertyName("detected_language")]
         public string DetectedLanguage { get; set; } = "";
+
+        [JsonPropertyName("category")]
         public string Category { get; set; } = "";
+
+        [JsonPropertyName("reasoning")]
         public string Reasoning { get; set; } = "";
+
+        [JsonPropertyName("english_aliases")]
+        public string EnglishAliases { get; set; } = "";
     }
 
     private class SourceRec

@@ -29,4 +29,7 @@ public class SourceRecommendationResult
 
     /// <summary>検出されたカテゴリ</summary>
     public string? DetectedCategory { get; set; }
+
+    /// <summary>AIが生成した英語エイリアス（カンマ区切り）</summary>
+    public string? EnglishAliases { get; set; }
 }

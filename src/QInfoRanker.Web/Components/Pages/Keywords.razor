@@ -178,10 +178,22 @@ else
 
                 // Get the created keyword with sources
                 var createdKeyword = keywords?.FirstOrDefault(k => k.Id == keyword.Id);
-                if (createdKeyword != null && createdKeyword.Sources.Any())
+                if (createdKeyword != null)
                 {
-                    var sourceNames = string.Join(", ", createdKeyword.Sources.Select(s => s.Name));
-                    statusMessage = $"「{term}」を追加しました。AIが推薦したソース: {sourceNames}";
+                    var parts = new List<string>();
+
+                    if (createdKeyword.Sources.Any())
+                    {
+                        var sourceNames = string.Join(", ", createdKeyword.Sources.Select(s => s.Name));
+                        parts.Add($"推薦ソース: {sourceNames}");
+                    }
+
+                    if (!string.IsNullOrEmpty(createdKeyword.Aliases))
+                    {
+                        parts.Add($"英語エイリアス: {createdKeyword.Aliases}");
+                    }
+
+                    statusMessage = $"「{term}」を追加しました。" + (parts.Any() ? " " + string.Join(" / ", parts) : "");
                 }
                 else
                 {

@@ -65,11 +65,20 @@ public class KeywordService : IKeywordService
         if (recommendationResult.KeywordAnalysis != null)
         {
             _logger.LogInformation(
-                "Keyword '{Term}' analysis: Language={Language}, Category={Category}, Reasoning={Reasoning}",
+                "Keyword '{Term}' analysis: Language={Language}, Category={Category}, Aliases={Aliases}, Reasoning={Reasoning}",
                 term,
                 recommendationResult.DetectedLanguage,
                 recommendationResult.DetectedCategory,
+                recommendationResult.EnglishAliases,
                 recommendationResult.KeywordAnalysis);
+        }
+
+        // 英語エイリアスを設定（AIが生成した場合）
+        if (!string.IsNullOrWhiteSpace(recommendationResult.EnglishAliases))
+        {
+            keyword.Aliases = recommendationResult.EnglishAliases;
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Auto-generated English aliases for '{Term}': {Aliases}", term, keyword.Aliases);
         }
 
         foreach (var template in recommendationResult.RecommendedSources)
