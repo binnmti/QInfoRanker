@@ -416,3 +416,19 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
+# Development/local settings with secrets
+**/appsettings.Development.json
+**/appsettings.test.local.json
+
+# User secrets (alternative to Development.json)
+secrets.json
+
+# Windows reserved device names
+nul
+NUL

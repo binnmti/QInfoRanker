@@ -1,0 +1,115 @@
+@page "/settings"
+@rendermode InteractiveServer
+@inject IScoringService ScoringService
+@inject IConfiguration Configuration
+
+<PageTitle>Settings - QInfoRanker</PageTitle>
+
+<h1>Settings</h1>
+
+<h2>Azure OpenAI Connection Test</h2>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Current Configuration</h5>
+        <dl class="row">
+            <dt class="col-sm-3">Endpoint</dt>
+            <dd class="col-sm-9"><code>@GetMaskedEndpoint()</code></dd>
+
+            <dt class="col-sm-3">Deployment</dt>
+            <dd class="col-sm-9"><code>@Configuration["AzureOpenAI:DeploymentName"]</code></dd>
+
+            <dt class="col-sm-3">API Key</dt>
+            <dd class="col-sm-9"><code>@GetMaskedApiKey()</code></dd>
+        </dl>
+
+        <button class="btn btn-primary" @onclick="TestConnection" disabled="@isTesting">
+            @if (isTesting)
+            {
+                <span class="spinner-border spinner-border-sm" role="status"></span>
+                <span>Testing...</span>
+            }
+            else
+            {
+                <span>Test Connection</span>
+            }
+        </button>
+
+        @if (!string.IsNullOrEmpty(testResult))
+        {
+            <div class="alert @(testSuccess ? "alert-success" : "alert-danger") mt-3">
+                <strong>@(testSuccess ? "Success!" : "Error:")</strong>
+                <pre class="mb-0 mt-2">@testResult</pre>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool isTesting = false;
+    private string testResult = string.Empty;
+    private bool testSuccess = false;
+
+    private string GetMaskedEndpoint()
+    {
+        var endpoint = Configuration["AzureOpenAI:Endpoint"];
+        return string.IsNullOrEmpty(endpoint) ? "(not configured)" : endpoint;
+    }
+
+    private string GetMaskedApiKey()
+    {
+        var apiKey = Configuration["AzureOpenAI:ApiKey"];
+        if (string.IsNullOrEmpty(apiKey))
+            return "(not configured)";
+        if (apiKey.Length <= 8)
+            return "****";
+        return apiKey[..4] + "..." + apiKey[^4..];
+    }
+
+    private async Task TestConnection()
+    {
+        isTesting = true;
+        testResult = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            // Create a test article
+            var testArticle = new Article
+            {
+                Title = "Test Article: Quantum Computing Breakthrough",
+                Summary = "Scientists achieve new milestone in quantum error correction.",
+                Url = "https://example.com/test"
+            };
+
+            // Try to score it
+            var result = await ScoringService.CalculateLlmScoreAsync(testArticle, false);
+
+            if (result.LlmScore.HasValue)
+            {
+                testSuccess = true;
+                testResult = $"Connection successful!\n\n" +
+                            $"Test article scored:\n" +
+                            $"  Technical: {result.TechnicalScore}\n" +
+                            $"  Novelty: {result.NoveltyScore}\n" +
+                            $"  Impact: {result.ImpactScore}\n" +
+                            $"  Quality: {result.QualityScore}\n" +
+                            $"  Total: {result.LlmScore}";
+            }
+            else
+            {
+                testSuccess = false;
+                testResult = "No score returned. Check if Azure OpenAI is properly configured.";
+            }
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testResult = $"{ex.GetType().Name}: {ex.Message}";
+        }
+        finally
+        {
+            isTesting = false;
+        }
+    }
+}

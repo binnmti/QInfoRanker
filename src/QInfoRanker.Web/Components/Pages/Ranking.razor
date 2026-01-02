@@ -1,0 +1,315 @@
+@page "/ranking"
+@rendermode InteractiveServer
+@inject IArticleService ArticleService
+@inject IKeywordService KeywordService
+@inject ICollectionQueue CollectionQueue
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>Ranking - QInfoRanker</PageTitle>
+
+<style>
+    .article-item {
+        animation: slideIn 0.3s ease-out;
+    }
+    @@keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    .score-bar {
+        height: 6px;
+        border-radius: 3px;
+        background-color: #e9ecef;
+        overflow: hidden;
+    }
+    .score-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+    .score-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 4px;
+        font-size: 0.75rem;
+    }
+    .scoring-indicator {
+        animation: pulse 1.5s infinite;
+    }
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .time-info {
+        font-size: 0.7rem;
+        color: #6c757d;
+    }
+</style>
+
+<h1>Ranking</h1>
+
+@* Collection status display *@
+@if (collectionStatuses.Any())
+{
+    <div class="alert alert-info mb-3">
+        <div class="d-flex align-items-center flex-wrap">
+            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+            <strong>Collecting:</strong>
+            @foreach (var status in collectionStatuses)
+            {
+                <span class="badge bg-primary ms-2">
+                    @status.KeywordTerm
+                    <small class="ms-1">(@GetStatusText(status.State))</small>
+                </span>
+            }
+            <small class="ms-auto text-muted">Auto-refresh every @(autoRefreshSeconds) sec</small>
+        </div>
+    </div>
+}
+
+<div class="row mb-3">
+    <div class="col-md-3">
+        <label class="form-label">Keyword</label>
+        <select class="form-select" @bind="selectedKeywordId" @bind:after="LoadRanking">
+            <option value="">All</option>
+            @if (keywords != null)
+            {
+                @foreach (var kw in keywords)
+                {
+                    <option value="@kw.Id">@kw.Term</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Period</label>
+        <select class="form-select" @bind="selectedPeriod" @bind:after="LoadRanking">
+            <option value="day">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+            <option value="all">All Time</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Count</label>
+        <select class="form-select" @bind="topCount" @bind:after="LoadRanking">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+        </select>
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+        <button class="btn btn-outline-secondary" @onclick="LoadRanking" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm" role="status"></span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+</div>
+
+@if (isLoading && articles == null)
+{
+    <p>Loading...</p>
+}
+else if (articles == null || !articles.Any())
+{
+    <div class="alert alert-info">
+        No articles to rank. Click "Collect" on the <a href="/">Keywords</a> page to start collecting articles.
+    </div>
+}
+else
+{
+    var articlesWithScore = articles.Count(a => a.LlmScore.HasValue);
+    var avgScore = articles.Any(a => a.FinalScore > 0) ? articles.Where(a => a.FinalScore > 0).Average(a => a.FinalScore) : 0;
+    <div class="mb-2 text-muted small">
+        @articles.Count() items (Scored: @articlesWithScore, Avg: @avgScore.ToString("F1"))
+        @if(lastUpdated.HasValue) { <span>(Updated: @lastUpdated.Value.ToString("HH:mm:ss"))</span> }
+    </div>
+    <div class="list-group">
+        @{ var rank = 1; }
+        @foreach (var article in articles)
+        {
+            var isScoring = !article.LlmScore.HasValue && collectionStatuses.Any();
+            var hasScore = article.LlmScore.HasValue;
+
+            <div class="list-group-item article-item" @key="article.Id">
+                @* Title and link *@
+                <div class="d-flex align-items-start">
+                    @if (hasScore)
+                    {
+                        <span class="badge bg-primary me-2">#@rank</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary me-2">NEW</span>
+                    }
+                    <a href="@article.Url" target="_blank" class="fw-bold text-decoration-none">@article.Title</a>
+                </div>
+
+                @* Meta info: Source, Date, Score - compact single line *@
+                <div class="mt-1 d-flex flex-wrap gap-2 align-items-center text-muted small">
+                    <span class="badge bg-secondary">@article.Source.Name</span>
+                    <span class="badge @GetLanguageBadgeClass(article.Source.Language)">@GetLanguageLabel(article.Source.Language)</span>
+                    @if (article.PublishedAt.HasValue)
+                    {
+                        <span>@article.PublishedAt.Value.ToString("yyyy-MM-dd")</span>
+                    }
+                    @if (article.NativeScore.HasValue)
+                    {
+                        <span title="Popularity (likes, bookmarks)">★@article.NativeScore</span>
+                    }
+                    @if (hasScore)
+                    {
+                        <span class="ms-auto" title="Final Score = Quality(@(article.LlmScore?.ToString("F0") ?? "-")) × Relevance(@(article.RelevanceScore?.ToString("F0") ?? "-")/10)">
+                            <strong>@article.FinalScore.ToString("F1")</strong>点
+                        </span>
+                    }
+                    else if (isScoring)
+                    {
+                        <span class="ms-auto text-warning scoring-indicator">採点中...</span>
+                    }
+                </div>
+
+                @* Summary (prefer Japanese) - main content *@
+                @{
+                    var displaySummary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
+                }
+                @if (!string.IsNullOrEmpty(displaySummary))
+                {
+                    <p class="mt-2 mb-0 text-muted small">
+                        @(displaySummary.Length > 300 ? displaySummary[..300] + "..." : displaySummary)
+                    </p>
+                }
+            </div>
+
+            @if (hasScore)
+            {
+                rank++;
+            }
+        }
+    </div>
+}
+
+@code {
+    private IEnumerable<Article>? articles;
+    private IEnumerable<Keyword>? keywords;
+    private int? selectedKeywordId;
+    private string selectedPeriod = "week";
+    private int topCount = 50;
+    private bool isLoading = true;
+    private DateTime? lastUpdated;
+    private List<CollectionStatus> collectionStatuses = new();
+    private Timer? autoRefreshTimer;
+    private const int autoRefreshSeconds = 5;
+    private HashSet<int> previousArticleIds = new();
+
+    [SupplyParameterFromQuery(Name = "keyword")]
+    public int? KeywordIdFromQuery { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        keywords = await KeywordService.GetAllAsync();
+
+        if (KeywordIdFromQuery.HasValue)
+        {
+            selectedKeywordId = KeywordIdFromQuery;
+        }
+
+        await LoadRanking();
+        UpdateCollectionStatuses();
+
+        autoRefreshTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                UpdateCollectionStatuses();
+
+                if (collectionStatuses.Any())
+                {
+                    await LoadRanking();
+                }
+
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(autoRefreshSeconds), TimeSpan.FromSeconds(autoRefreshSeconds));
+    }
+
+    private void UpdateCollectionStatuses()
+    {
+        collectionStatuses = CollectionQueue.GetAllStatuses()
+            .Where(s => s.State == CollectionState.Queued ||
+                        s.State == CollectionState.Collecting ||
+                        s.State == CollectionState.Scoring)
+            .ToList();
+    }
+
+    private async Task LoadRanking()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        DateTime? fromDate = selectedPeriod switch
+        {
+            "day" => DateTime.UtcNow.Date,
+            "week" => DateTime.UtcNow.AddDays(-7),
+            "month" => DateTime.UtcNow.AddMonths(-1),
+            _ => null
+        };
+
+        var newArticles = await ArticleService.GetRankedAsync(selectedKeywordId, fromDate, null, topCount);
+
+        // Sort: scored articles by FinalScore desc, unscored by CollectedAt desc
+        articles = newArticles
+            .OrderByDescending(a => a.LlmScore.HasValue ? 1 : 0)
+            .ThenByDescending(a => a.LlmScore.HasValue ? a.FinalScore : 0)
+            .ThenByDescending(a => a.CollectedAt);
+
+        // Track new articles for animation
+        var currentIds = articles.Select(a => a.Id).ToHashSet();
+        previousArticleIds = currentIds;
+
+        lastUpdated = DateTime.Now;
+        isLoading = false;
+    }
+
+    private string GetStatusText(CollectionState state) => state switch
+    {
+        CollectionState.Queued => "Queued",
+        CollectionState.Collecting => "Collecting",
+        CollectionState.Scoring => "Scoring",
+        _ => "Processing"
+    };
+
+    private string GetLanguageLabel(Language lang) => lang switch
+    {
+        Language.Japanese => "JP",
+        Language.English => "EN",
+        Language.Both => "Both",
+        _ => "Other"
+    };
+
+    private string GetLanguageBadgeClass(Language lang) => lang switch
+    {
+        Language.Japanese => "bg-danger",
+        Language.English => "bg-primary",
+        Language.Both => "bg-success",
+        _ => "bg-secondary"
+    };
+
+    public void Dispose()
+    {
+        autoRefreshTimer?.Dispose();
+    }
+}

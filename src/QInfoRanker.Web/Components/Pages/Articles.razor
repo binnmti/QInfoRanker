@@ -1,0 +1,105 @@
+@page "/articles"
+@rendermode InteractiveServer
+@inject IArticleService ArticleService
+@inject IKeywordService KeywordService
+@inject ISourceService SourceService
+
+<PageTitle>Articles - QInfoRanker</PageTitle>
+
+<h1>Articles</h1>
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <label class="form-label">Keyword</label>
+        <select class="form-select" @bind="selectedKeywordId" @bind:after="LoadArticles">
+            <option value="">All Keywords</option>
+            @if (keywords != null)
+            {
+                @foreach (var kw in keywords)
+                {
+                    <option value="@kw.Id">@kw.Term</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Source</label>
+        <select class="form-select" @bind="selectedSourceId" @bind:after="LoadArticles">
+            <option value="">All Sources</option>
+            @if (sources != null)
+            {
+                @foreach (var src in sources)
+                {
+                    <option value="@src.Id">@src.Name</option>
+                }
+            }
+        </select>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p>Loading...</p>
+}
+else if (articles == null || !articles.Any())
+{
+    <p>No articles found. Run collection to gather articles.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Source</th>
+                <th>Native Score</th>
+                <th>LLM Score</th>
+                <th>Final Score</th>
+                <th>Collected</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var article in articles)
+            {
+                <tr>
+                    <td>
+                        <a href="@article.Url" target="_blank">@TruncateTitle(article.Title)</a>
+                    </td>
+                    <td>@article.Source.Name</td>
+                    <td>@(article.NativeScore?.ToString() ?? "-")</td>
+                    <td>@(article.LlmScore?.ToString("F1") ?? "-")</td>
+                    <td><strong>@article.FinalScore.ToString("F1")</strong></td>
+                    <td>@article.CollectedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private IEnumerable<Article>? articles;
+    private IEnumerable<Keyword>? keywords;
+    private IEnumerable<Source>? sources;
+    private int? selectedKeywordId;
+    private int? selectedSourceId;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        keywords = await KeywordService.GetAllAsync();
+        sources = await SourceService.GetAllAsync();
+        await LoadArticles();
+    }
+
+    private async Task LoadArticles()
+    {
+        isLoading = true;
+        articles = await ArticleService.GetAllAsync(selectedKeywordId, selectedSourceId);
+        isLoading = false;
+    }
+
+    private string TruncateTitle(string title)
+    {
+        return title.Length > 80 ? title[..77] + "..." : title;
+    }
+}

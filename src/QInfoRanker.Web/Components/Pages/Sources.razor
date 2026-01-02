@@ -1,0 +1,302 @@
+@page "/sources"
+@rendermode InteractiveServer
+@inject ISourceService SourceService
+@inject IKeywordService KeywordService
+
+<PageTitle>Sources - QInfoRanker</PageTitle>
+
+<h1>Sources</h1>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="ShowAddSourceModal">
+        Add Source
+    </button>
+</div>
+
+@if (isLoading)
+{
+    <p>Loading...</p>
+}
+else if (sources == null || !sources.Any())
+{
+    <p>No sources found.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Keyword</th>
+                <th>Type</th>
+                <th>Language</th>
+                <th>Category</th>
+                <th>Authority</th>
+                <th>AI Reason</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var source in sources)
+            {
+                <tr>
+                    <td>
+                        <a href="@source.Url" target="_blank">@source.Name</a>
+                        @if (source.IsAutoDiscovered)
+                        {
+                            <span class="badge bg-info ms-1">Auto</span>
+                        }
+                        @if (source.IsTemplate)
+                        {
+                            <span class="badge bg-warning ms-1">Template</span>
+                        }
+                    </td>
+                    <td>@(source.Keyword?.Term ?? "-")</td>
+                    <td><span class="badge bg-secondary">@source.Type</span></td>
+                    <td>
+                        <span class="badge @GetLanguageBadgeClass(source.Language)">
+                            @GetLanguageLabel(source.Language)
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge @GetCategoryBadgeClass(source.Category)">
+                            @GetCategoryLabel(source.Category)
+                        </span>
+                    </td>
+                    <td>@source.AuthorityWeight.ToString("P0")</td>
+                    <td>
+                        @if (!string.IsNullOrEmpty(source.RecommendationReason))
+                        {
+                            <span class="text-muted small" title="@source.RecommendationReason">
+                                @TruncateReason(source.RecommendationReason)
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="text-muted">-</span>
+                        }
+                    </td>
+                    <td>
+                        @if (source.IsActive)
+                        {
+                            <span class="badge bg-success">Active</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary">Inactive</span>
+                        }
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActive(source.Id)">
+                            @(source.IsActive ? "Deactivate" : "Activate")
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteSource(source.Id)">
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (showModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Source</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="newSource.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">URL</label>
+                        <input type="text" class="form-control" @bind="newSource.Url" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Search URL Template</label>
+                        <input type="text" class="form-control" @bind="newSource.SearchUrlTemplate" placeholder="Use {keyword} as placeholder" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Keyword</label>
+                        <select class="form-select" @bind="selectedKeywordId">
+                            <option value="">-- Select Keyword --</option>
+                            @if (keywords != null)
+                            {
+                                @foreach (var kw in keywords)
+                                {
+                                    <option value="@kw.Id">@kw.Term</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Type</label>
+                                <select class="form-select" @bind="newSource.Type">
+                                    @foreach (var type in Enum.GetValues<SourceType>())
+                                    {
+                                        <option value="@type">@type</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Language</label>
+                                <select class="form-select" @bind="newSource.Language">
+                                    @foreach (var lang in Enum.GetValues<Language>())
+                                    {
+                                        <option value="@lang">@GetLanguageLabel(lang)</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" @bind="newSource.Category">
+                            @foreach (var cat in Enum.GetValues<SourceCategory>())
+                            {
+                                <option value="@cat">@GetCategoryLabel(cat)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Authority Weight (@newSource.AuthorityWeight.ToString("P0"))</label>
+                        <input type="range" class="form-range" min="0" max="1" step="0.1" @bind="newSource.AuthorityWeight" />
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" @bind="newSource.HasNativeScore" />
+                        <label class="form-check-label">Has Native Score</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" @bind="newSource.IsTemplate" />
+                        <label class="form-check-label">Template (applies to all keywords)</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="AddSource">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    private IEnumerable<Source>? sources;
+    private IEnumerable<Keyword>? keywords;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private Source newSource = new();
+    private int? selectedKeywordId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        sources = await SourceService.GetAllAsync();
+        keywords = await KeywordService.GetAllAsync();
+        isLoading = false;
+    }
+
+    private void ShowAddSourceModal()
+    {
+        newSource = new Source
+        {
+            AuthorityWeight = 0.5,
+            Type = SourceType.Api,
+            Language = Language.Both,
+            Category = SourceCategory.Technology,
+            IsActive = true
+        };
+        selectedKeywordId = null;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+    }
+
+    private async Task AddSource()
+    {
+        if (!string.IsNullOrWhiteSpace(newSource.Name) && !string.IsNullOrWhiteSpace(newSource.Url))
+        {
+            newSource.KeywordId = selectedKeywordId;
+            await SourceService.CreateAsync(newSource);
+            showModal = false;
+            await LoadData();
+        }
+    }
+
+    private async Task ToggleActive(int id)
+    {
+        await SourceService.ToggleActiveAsync(id);
+        await LoadData();
+    }
+
+    private async Task DeleteSource(int id)
+    {
+        await SourceService.DeleteAsync(id);
+        await LoadData();
+    }
+
+    private string GetLanguageLabel(Language lang) => lang switch
+    {
+        Language.Japanese => "Japanese",
+        Language.English => "English",
+        Language.Both => "Both",
+        Language.Other => "Other",
+        _ => lang.ToString()
+    };
+
+    private string GetLanguageBadgeClass(Language lang) => lang switch
+    {
+        Language.Japanese => "bg-danger",
+        Language.English => "bg-primary",
+        Language.Both => "bg-success",
+        _ => "bg-secondary"
+    };
+
+    private string GetCategoryLabel(SourceCategory cat) => cat switch
+    {
+        SourceCategory.Technology => "Technology",
+        SourceCategory.Science => "Science",
+        SourceCategory.Business => "Business",
+        SourceCategory.News => "News",
+        SourceCategory.Social => "Social",
+        SourceCategory.Academic => "Academic",
+        SourceCategory.Other => "Other",
+        _ => cat.ToString()
+    };
+
+    private string GetCategoryBadgeClass(SourceCategory cat) => cat switch
+    {
+        SourceCategory.Technology => "bg-info",
+        SourceCategory.Science => "bg-success",
+        SourceCategory.Academic => "bg-warning text-dark",
+        SourceCategory.Social => "bg-primary",
+        SourceCategory.News => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string TruncateReason(string reason)
+    {
+        if (string.IsNullOrEmpty(reason)) return "-";
+        return reason.Length > 30 ? reason[..30] + "..." : reason;
+    }
+}
