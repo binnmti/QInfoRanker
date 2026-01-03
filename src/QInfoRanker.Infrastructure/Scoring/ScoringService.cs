@@ -508,7 +508,7 @@ public class ScoringService : IScoringService
         var articlesJsonStr = JsonSerializer.Serialize(articlesJson, new JsonSerializerOptions { WriteIndented = false });
 
         var prompt = $$"""
-            以下の技術記事（キーワード: {{keywordsStr}}）を評価し、日本語で要約してください。
+            以下の技術記事（キーワード: {{keywordsStr}}）を評価し、日本語で詳細に要約してください。
 
             評価項目（各0-25点）:
             - technical: 技術的深さと重要性
@@ -529,12 +529,17 @@ public class ScoringService : IScoringService
                   "impact": 18,
                   "quality": 17,
                   "total": 70,
-                  "summary_ja": "この記事は〇〇について解説しており、△△の実装方法を詳しく説明している。"
+                  "summary_ja": "詳細な要約をここに記載..."
                 }
               ]
             }
 
-            summary_ja: 記事の内容を2-3文の日本語で要約。技術者が読む価値があるかを判断できる内容にすること。
+            summary_ja: 記事の内容を詳細に日本語で要約（250-400文字程度）。以下の観点を含めること:
+            - 記事の主題と目的
+            - 主要な技術的内容・手法
+            - 重要なポイントや発見
+            - 実用的な意義や応用可能性
+            技術者がこの要約だけで記事を読むべきか判断できる情報量を提供すること。
             """;
 
         var messages = new List<ChatMessage>

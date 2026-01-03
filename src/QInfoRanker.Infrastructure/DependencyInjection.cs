@@ -44,6 +44,13 @@ public static class DependencyInjection
         services.AddHttpClient<HatenaCollector>();
         services.AddHttpClient<QiitaCollector>();
         services.AddHttpClient<ZennCollector>();
+        // 新規コレクター
+        services.AddHttpClient<GoogleNewsCollector>();
+        services.AddHttpClient<PubMedCollector>();
+        services.AddHttpClient<NoteCollector>();
+        services.AddHttpClient<SemanticScholarCollector>();
+        services.AddHttpClient<BBCNewsCollector>();
+        services.AddHttpClient<YahooNewsJapanCollector>();
 
         // Collectors
         services.AddScoped<ICollector, HackerNewsCollector>();
@@ -52,6 +59,13 @@ public static class DependencyInjection
         services.AddScoped<ICollector, HatenaCollector>();
         services.AddScoped<ICollector, QiitaCollector>();
         services.AddScoped<ICollector, ZennCollector>();
+        // 新規コレクター
+        services.AddScoped<ICollector, GoogleNewsCollector>();
+        services.AddScoped<ICollector, PubMedCollector>();
+        services.AddScoped<ICollector, NoteCollector>();
+        services.AddScoped<ICollector, SemanticScholarCollector>();
+        services.AddScoped<ICollector, BBCNewsCollector>();
+        services.AddScoped<ICollector, YahooNewsJapanCollector>();
 
         // Services
         services.AddScoped<IKeywordService, KeywordService>();

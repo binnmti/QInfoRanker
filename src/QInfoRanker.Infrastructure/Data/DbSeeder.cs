@@ -110,6 +110,107 @@ public static class DbSeeder
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.Social
+            },
+            // 新規追加ソース: ニュース系
+            new()
+            {
+                Name = "Google News JP",
+                Url = "https://news.google.com",
+                SearchUrlTemplate = "https://news.google.com/rss/search?q={keyword}&hl=ja&gl=JP&ceid=JP:ja",
+                Type = SourceType.Rss,
+                HasNativeScore = false,
+                HasServerSideFiltering = true,
+                AuthorityWeight = 0.7,
+                IsTemplate = true,
+                IsActive = true,
+                Language = Language.Japanese,
+                Category = SourceCategory.News
+            },
+            new()
+            {
+                Name = "Google News EN",
+                Url = "https://news.google.com",
+                SearchUrlTemplate = "https://news.google.com/rss/search?q={keyword}&hl=en&gl=US&ceid=US:en",
+                Type = SourceType.Rss,
+                HasNativeScore = false,
+                HasServerSideFiltering = true,
+                AuthorityWeight = 0.7,
+                IsTemplate = true,
+                IsActive = true,
+                Language = Language.English,
+                Category = SourceCategory.News
+            },
+            new()
+            {
+                Name = "Yahoo! News Japan",
+                Url = "https://news.yahoo.co.jp",
+                SearchUrlTemplate = "https://news.yahoo.co.jp/rss/topics/top-picks.xml",
+                Type = SourceType.Rss,
+                HasNativeScore = false,
+                HasServerSideFiltering = false,
+                AuthorityWeight = 0.7,
+                IsTemplate = true,
+                IsActive = true,
+                Language = Language.Japanese,
+                Category = SourceCategory.News
+            },
+            new()
+            {
+                Name = "BBC News",
+                Url = "https://www.bbc.com/news",
+                SearchUrlTemplate = "https://feeds.bbci.co.uk/news/rss.xml",
+                Type = SourceType.Rss,
+                HasNativeScore = false,
+                HasServerSideFiltering = false,
+                AuthorityWeight = 0.8,
+                IsTemplate = true,
+                IsActive = true,
+                Language = Language.English,
+                Category = SourceCategory.News
+            },
+            // 新規追加ソース: 学術系
+            new()
+            {
+                Name = "PubMed",
+                Url = "https://pubmed.ncbi.nlm.nih.gov",
+                SearchUrlTemplate = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={keyword}&retmax=50&retmode=json",
+                Type = SourceType.Api,
+                HasNativeScore = false,
+                HasServerSideFiltering = true,
+                AuthorityWeight = 0.9,
+                IsTemplate = true,
+                IsActive = true,
+                Language = Language.English,
+                Category = SourceCategory.Medical
+            },
+            new()
+            {
+                Name = "Semantic Scholar",
+                Url = "https://www.semanticscholar.org",
+                SearchUrlTemplate = "https://api.semanticscholar.org/graph/v1/paper/search?query={keyword}&limit=50&fields=paperId,title,abstract,citationCount,year,url",
+                Type = SourceType.Api,
+                HasNativeScore = true,
+                HasServerSideFiltering = true,
+                AuthorityWeight = 0.85,
+                IsTemplate = true,
+                IsActive = true,
+                Language = Language.English,
+                Category = SourceCategory.Academic
+            },
+            // 新規追加ソース: エンタメ・趣味
+            new()
+            {
+                Name = "Note.com",
+                Url = "https://note.com",
+                SearchUrlTemplate = "https://note.com/api/v2/searches?q={keyword}&size=50",
+                Type = SourceType.Api,
+                HasNativeScore = true,
+                HasServerSideFiltering = true,
+                AuthorityWeight = 0.6,
+                IsTemplate = true,
+                IsActive = true,
+                Language = Language.Japanese,
+                Category = SourceCategory.Entertainment
             }
         };
 

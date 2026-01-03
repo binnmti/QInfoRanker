@@ -14,7 +14,40 @@
 
 <body>
     <Routes />
-    <script src="_framework/blazor.web.js"></script>
+    <script src="_framework/blazor.web.js" autostart="false"></script>
+    <script>
+        Blazor.start({
+            circuit: {
+                reconnectionOptions: {
+                    maxRetries: 30,
+                    retryIntervalMilliseconds: 2000,
+                    dialogId: "components-reconnect-modal"
+                },
+                configureSignalR: function (builder) {
+                    builder.withServerTimeout(300000);
+                    builder.withKeepAliveInterval(15000);
+                }
+            }
+        });
+    </script>
+    
+    <!-- 再接続UI -->
+    <div id="components-reconnect-modal" style="display: none;">
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center;">
+            <div style="background: white; padding: 20px; border-radius: 8px; text-align: center;">
+                <p class="reconnect-message">サーバーに再接続中...</p>
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <style>
+        #components-reconnect-modal.components-reconnect-show { display: block !important; }
+        #components-reconnect-modal.components-reconnect-hide { display: none !important; }
+        #components-reconnect-modal.components-reconnect-failed .reconnect-message::after { content: " 再接続に失敗しました。ページを更新してください。"; }
+        #components-reconnect-modal.components-reconnect-rejected .reconnect-message::after { content: " 接続が拒否されました。ページを更新してください。"; }
+    </style>
 </body>
 
 </html>

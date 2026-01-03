@@ -10,8 +10,8 @@ public class BatchScoringOptions
     public int RelevanceMaxTokens { get; set; } = 2000;
 
     // Stage 2: 品質評価設定
-    public int QualityBatchSize { get; set; } = 5;
-    public int QualityMaxTokens { get; set; } = 3000;
+    public int QualityBatchSize { get; set; } = 3;  // 長いサマリー生成のため減らした
+    public int QualityMaxTokens { get; set; } = 4000;
 
     // バッチ処理設定
     public bool EnableBatchProcessing { get; set; } = true;

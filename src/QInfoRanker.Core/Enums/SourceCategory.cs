@@ -8,5 +8,8 @@ public enum SourceCategory
     News,
     Social,
     Academic,
+    Entertainment,
+    Finance,
+    Medical,
     Other
 }

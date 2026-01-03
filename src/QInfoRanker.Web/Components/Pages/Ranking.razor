@@ -1,7 +1,10 @@
 @page "/ranking"
 @rendermode InteractiveServer
+@using QInfoRanker.Core.Entities
+@using QInfoRanker.Core.Enums
 @inject IArticleService ArticleService
 @inject IKeywordService KeywordService
+@inject ISourceService SourceService
 @inject ICollectionQueue CollectionQueue
 @inject NavigationManager Navigation
 @implements IDisposable
@@ -73,10 +76,10 @@
     </div>
 }
 
-<div class="row mb-3">
-    <div class="col-md-3">
+<div class="row mb-3 g-2">
+    <div class="col-md-2">
         <label class="form-label">Keyword</label>
-        <select class="form-select" @bind="selectedKeywordId" @bind:after="LoadRanking">
+        <select class="form-select form-select-sm" @bind="selectedKeywordId" @bind:after="LoadRanking">
             <option value="">All</option>
             @if (keywords != null)
             {
@@ -87,26 +90,47 @@
             }
         </select>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-2">
+        <label class="form-label">Language</label>
+        <select class="form-select form-select-sm" @bind="selectedLanguage" @bind:after="LoadRanking">
+            <option value="">All</option>
+            <option value="Japanese">Japanese</option>
+            <option value="English">English</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">Source</label>
+        <select class="form-select form-select-sm" @bind="selectedSourceId" @bind:after="LoadRanking">
+            <option value="">All</option>
+            @if (sources != null)
+            {
+                @foreach (var src in sources)
+                {
+                    <option value="@src.Id">@src.Name</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-2">
         <label class="form-label">Period</label>
-        <select class="form-select" @bind="selectedPeriod" @bind:after="LoadRanking">
+        <select class="form-select form-select-sm" @bind="selectedPeriod" @bind:after="LoadRanking">
             <option value="day">Today</option>
             <option value="week">This Week</option>
             <option value="month">This Month</option>
             <option value="all">All Time</option>
         </select>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-2">
         <label class="form-label">Count</label>
-        <select class="form-select" @bind="topCount" @bind:after="LoadRanking">
+        <select class="form-select form-select-sm" @bind="topCount" @bind:after="LoadRanking">
             <option value="10">10</option>
             <option value="25">25</option>
             <option value="50">50</option>
             <option value="100">100</option>
         </select>
     </div>
-    <div class="col-md-3 d-flex align-items-end">
-        <button class="btn btn-outline-secondary" @onclick="LoadRanking" disabled="@isLoading">
+    <div class="col-md-2 d-flex align-items-end">
+        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadRanking" disabled="@isLoading">
             @if (isLoading)
             {
                 <span class="spinner-border spinner-border-sm" role="status"></span>
@@ -172,8 +196,13 @@ else
                     }
                     @if (hasScore)
                     {
-                        <span class="ms-auto" title="Final Score = Quality(@(article.LlmScore?.ToString("F0") ?? "-")) × Relevance(@(article.RelevanceScore?.ToString("F0") ?? "-")/10)">
-                            <strong>@article.FinalScore.ToString("F1")</strong>点
+                        <span class="ms-auto d-flex align-items-center gap-1" title="Final Score = Quality(@(article.LlmScore?.ToString("F0") ?? "-")) × Relevance(@(article.RelevanceScore?.ToString("F0") ?? "-")/10)">
+                            <span class="badge bg-info" style="font-size:0.65rem" title="Technical">T:@(article.TechnicalScore ?? 0)</span>
+                            <span class="badge bg-success" style="font-size:0.65rem" title="Novelty">N:@(article.NoveltyScore ?? 0)</span>
+                            <span class="badge bg-warning text-dark" style="font-size:0.65rem" title="Impact">I:@(article.ImpactScore ?? 0)</span>
+                            <span class="badge bg-secondary" style="font-size:0.65rem" title="Quality">Q:@(article.QualityScore ?? 0)</span>
+                            <span class="badge bg-primary" style="font-size:0.65rem" title="Relevance">R:@(article.RelevanceScore?.ToString("F0") ?? "-")</span>
+                            <strong class="ms-1">@article.FinalScore.ToString("F1")</strong>点
                         </span>
                     }
                     else if (isScoring)
@@ -182,16 +211,28 @@ else
                     }
                 </div>
 
-                @* Summary (prefer Japanese) - main content *@
+                @* Summary (prefer Japanese) - expanded content *@
                 @{
                     var displaySummary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
                 }
                 @if (!string.IsNullOrEmpty(displaySummary))
                 {
-                    <p class="mt-2 mb-0 text-muted small">
-                        @(displaySummary.Length > 300 ? displaySummary[..300] + "..." : displaySummary)
+                    <p class="mt-2 mb-1 text-muted small" style="line-height: 1.5;">
+                        @(displaySummary.Length > 600 ? displaySummary[..600] + "..." : displaySummary)
                     </p>
                 }
+                @* Additional metadata row *@
+                <div class="mt-1 d-flex flex-wrap gap-2 align-items-center small text-muted" style="font-size: 0.7rem;">
+                    @if (!string.IsNullOrEmpty(article.Keyword?.Term))
+                    {
+                        <span class="badge bg-dark">🔑 @article.Keyword.Term</span>
+                    }
+                    @if (!string.IsNullOrEmpty(article.Keyword?.Aliases))
+                    {
+                        <span class="text-secondary">(@article.Keyword.Aliases)</span>
+                    }
+                    <span class="text-secondary">Collected: @article.CollectedAt.ToString("MM/dd HH:mm")</span>
+                </div>
             </div>
 
             @if (hasScore)
@@ -205,7 +246,10 @@ else
 @code {
     private IEnumerable<Article>? articles;
     private IEnumerable<Keyword>? keywords;
+    private IEnumerable<Source>? sources;
     private int? selectedKeywordId;
+    private int? selectedSourceId;
+    private string selectedLanguage = "";
     private string selectedPeriod = "week";
     private int topCount = 50;
     private bool isLoading = true;
@@ -221,6 +265,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         keywords = await KeywordService.GetAllAsync();
+        sources = await SourceService.GetAllAsync();
 
         if (KeywordIdFromQuery.HasValue)
         {
@@ -268,13 +313,29 @@ else
             _ => null
         };
 
-        var newArticles = await ArticleService.GetRankedAsync(selectedKeywordId, fromDate, null, topCount);
+        var newArticles = await ArticleService.GetRankedAsync(selectedKeywordId, fromDate, null, topCount * 2);
+
+        // Apply language filter
+        if (!string.IsNullOrEmpty(selectedLanguage))
+        {
+            var targetLang = Enum.Parse<Language>(selectedLanguage);
+            newArticles = newArticles.Where(a =>
+                a.Source.Language == targetLang ||
+                a.Source.Language == Language.Both);
+        }
+
+        // Apply source filter
+        if (selectedSourceId.HasValue)
+        {
+            newArticles = newArticles.Where(a => a.SourceId == selectedSourceId.Value);
+        }
 
         // Sort: scored articles by FinalScore desc, unscored by CollectedAt desc
         articles = newArticles
             .OrderByDescending(a => a.LlmScore.HasValue ? 1 : 0)
             .ThenByDescending(a => a.LlmScore.HasValue ? a.FinalScore : 0)
-            .ThenByDescending(a => a.CollectedAt);
+            .ThenByDescending(a => a.CollectedAt)
+            .Take(topCount);
 
         // Track new articles for animation
         var currentIds = articles.Select(a => a.Id).ToHashSet();
