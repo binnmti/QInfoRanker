@@ -1,6 +1,7 @@
 using QInfoRanker.Infrastructure;
 using QInfoRanker.Infrastructure.Data;
 using QInfoRanker.Web.Components;
+using QInfoRanker.Web.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,5 +52,8 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     .AddInteractiveWebAssemblyRenderMode()
     .AddAdditionalAssemblies(typeof(QInfoRanker.Web.Client._Imports).Assembly);
+
+// SignalRハブのマッピング
+app.MapHub<CollectionProgressHub>("/hubs/collection-progress");
 
 app.Run();

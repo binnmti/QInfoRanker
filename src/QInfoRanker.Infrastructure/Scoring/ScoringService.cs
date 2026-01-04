@@ -159,6 +159,36 @@ public class ScoringService : IScoringService
         return Math.Min(100, (logScore / logMax) * 100);
     }
 
+    public async Task<bool> HealthCheckAsync(CancellationToken cancellationToken = default)
+    {
+        if (_chatClient == null)
+        {
+            throw new InvalidOperationException("Azure OpenAI is not configured. Check Endpoint and ApiKey settings.");
+        }
+
+        try
+        {
+            var messages = new List<ChatMessage>
+            {
+                new UserChatMessage("Reply with 'OK' only.")
+            };
+
+            var options = new ChatCompletionOptions
+            {
+                MaxOutputTokenCount = 10,
+                Temperature = 0
+            };
+
+            var response = await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
+            return response.Value.Content.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AI service health check failed");
+            throw new InvalidOperationException($"AI service is unavailable: {ex.Message}", ex);
+        }
+    }
+
     private string BuildScoringPrompt(Article article, bool includeContent)
     {
         var prompt = $"""

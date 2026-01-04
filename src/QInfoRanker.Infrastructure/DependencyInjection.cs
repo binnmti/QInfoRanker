@@ -79,6 +79,9 @@ public static class DependencyInjection
         services.AddSingleton<ICollectionQueue, CollectionQueue>();
         services.AddHostedService<CollectionBackgroundService>();
 
+        // Progress notification service
+        services.AddScoped<ICollectionProgressNotifier, CollectionProgressNotifier>();
+
         return services;
     }
 }

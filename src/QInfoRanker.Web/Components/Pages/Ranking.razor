@@ -42,13 +42,6 @@
         gap: 4px;
         font-size: 0.75rem;
     }
-    .scoring-indicator {
-        animation: pulse 1.5s infinite;
-    }
-    @@keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
     .time-info {
         font-size: 0.7rem;
         color: #6c757d;
@@ -57,22 +50,114 @@
 
 <h1>Ranking</h1>
 
-@* Collection status display *@
+@* Collection status display - detailed progress *@
 @if (collectionStatuses.Any())
 {
-    <div class="alert alert-info mb-3">
-        <div class="d-flex align-items-center flex-wrap">
-            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-            <strong>Collecting:</strong>
-            @foreach (var status in collectionStatuses)
-            {
-                <span class="badge bg-primary ms-2">
-                    @status.KeywordTerm
-                    <small class="ms-1">(@GetStatusText(status.State))</small>
-                </span>
-            }
-            <small class="ms-auto text-muted">Auto-refresh every @(autoRefreshSeconds) sec</small>
-        </div>
+    <div class="mb-3">
+        @foreach (var status in collectionStatuses)
+        {
+            var progressPercent = status.TotalSources > 0
+                ? (int)(status.SourceIndex * 100.0 / status.TotalSources)
+                : 0;
+            var isFailed = status.State == CollectionState.Failed;
+            var alertClass = isFailed ? "alert-danger" : (status.HasFatalError ? "alert-danger" : "alert-info");
+
+            <div class="alert @alertClass mb-2">
+                @* Header row *@
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="d-flex align-items-center">
+                        @if (!isFailed && !status.HasFatalError)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        <strong>@status.KeywordTerm</strong>
+                        @if (!string.IsNullOrEmpty(status.CurrentSource))
+                        {
+                            <span class="badge bg-secondary ms-2">@status.CurrentSource</span>
+                        }
+                    </div>
+                    <small class="text-muted">
+                        @if (status.TotalSources > 0)
+                        {
+                            <span>ソース @status.SourceIndex / @status.TotalSources</span>
+                        }
+                    </small>
+                </div>
+
+                @* Progress bar *@
+                @if (status.TotalSources > 0 && !isFailed)
+                {
+                    <div class="progress mb-2" style="height: 20px;">
+                        <div class="progress-bar @(status.State == CollectionState.Scoring ? "bg-success" : "bg-primary")"
+                             role="progressbar"
+                             style="width: @progressPercent%;"
+                             aria-valuenow="@progressPercent"
+                             aria-valuemin="0"
+                             aria-valuemax="100">
+                            @(status.Message ?? GetStatusText(status.State))
+                        </div>
+                    </div>
+                }
+
+                @* Stats row *@
+                <div class="d-flex flex-wrap gap-3 small">
+                    <span>
+                        <i class="bi bi-collection"></i>
+                        収集: <strong>@status.ArticlesCollected</strong>件
+                    </span>
+                    <span>
+                        <i class="bi bi-check-circle"></i>
+                        スコア済: <strong>@status.ArticlesScored</strong>件
+                    </span>
+                    <small class="text-muted ms-auto">
+                        @if (status.StartedAt != default)
+                        {
+                            var elapsed = DateTime.UtcNow - status.StartedAt;
+                            <span>経過: @elapsed.ToString(@"mm\:ss")</span>
+                        }
+                    </small>
+                </div>
+
+                @* Error display *@
+                @if (status.HasFatalError)
+                {
+                    <div class="alert alert-danger mt-2 mb-0 py-2">
+                        <strong>致命的エラー:</strong> @status.FatalErrorMessage
+                    </div>
+                }
+                else if (status.SourceErrors.Any())
+                {
+                    <div class="mt-2">
+                        @foreach (var err in status.SourceErrors.TakeLast(3))
+                        {
+                            <span class="badge bg-warning text-dark me-1" title="@err.ErrorMessage">
+                                @err.SourceName: エラー
+                            </span>
+                        }
+                        @if (status.SourceErrors.Count > 3)
+                        {
+                            <span class="text-muted small">他 @(status.SourceErrors.Count - 3)件</span>
+                        }
+                    </div>
+                }
+
+                @* Source results (completed sources) *@
+                @if (status.SourceResults.Any())
+                {
+                    <div class="mt-2 d-flex flex-wrap gap-1">
+                        @foreach (var result in status.SourceResults)
+                        {
+                            var badgeClass = result.Success ? "bg-success" : "bg-danger";
+                            <span class="badge @badgeClass" style="font-size: 0.7rem;"
+                                  title="@(result.Success ? $"{result.ArticleCount}件収集, {result.ScoredCount}件スコア" : result.ErrorMessage)">
+                                @result.SourceName (@result.ArticleCount)
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        <small class="text-muted">自動更新: @(autoRefreshSeconds)秒ごと</small>
     </div>
 }
 
@@ -155,30 +240,19 @@ else if (articles == null || !articles.Any())
 }
 else
 {
-    var articlesWithScore = articles.Count(a => a.LlmScore.HasValue);
-    var avgScore = articles.Any(a => a.FinalScore > 0) ? articles.Where(a => a.FinalScore > 0).Average(a => a.FinalScore) : 0;
+    var avgScore = articles.Any() ? articles.Average(a => a.FinalScore) : 0;
     <div class="mb-2 text-muted small">
-        @articles.Count() items (Scored: @articlesWithScore, Avg: @avgScore.ToString("F1"))
-        @if(lastUpdated.HasValue) { <span>(Updated: @lastUpdated.Value.ToString("HH:mm:ss"))</span> }
+        @articles.Count() 件 (平均: @avgScore.ToString("F1")点)
+        @if(lastUpdated.HasValue) { <span class="ms-2">更新: @lastUpdated.Value.ToString("HH:mm:ss")</span> }
     </div>
     <div class="list-group">
         @{ var rank = 1; }
         @foreach (var article in articles)
         {
-            var isScoring = !article.LlmScore.HasValue && collectionStatuses.Any();
-            var hasScore = article.LlmScore.HasValue;
-
             <div class="list-group-item article-item" @key="article.Id">
                 @* Title and link *@
                 <div class="d-flex align-items-start">
-                    @if (hasScore)
-                    {
-                        <span class="badge bg-primary me-2">#@rank</span>
-                    }
-                    else
-                    {
-                        <span class="badge bg-secondary me-2">NEW</span>
-                    }
+                    <span class="badge bg-primary me-2">#@rank</span>
                     <a href="@article.Url" target="_blank" class="fw-bold text-decoration-none">@article.Title</a>
                 </div>
 
@@ -194,21 +268,14 @@ else
                     {
                         <span title="Popularity (likes, bookmarks)">★@article.NativeScore</span>
                     }
-                    @if (hasScore)
-                    {
-                        <span class="ms-auto d-flex align-items-center gap-1" title="Final Score = Quality(@(article.LlmScore?.ToString("F0") ?? "-")) × Relevance(@(article.RelevanceScore?.ToString("F0") ?? "-")/10)">
-                            <span class="badge bg-info" style="font-size:0.65rem" title="Technical">T:@(article.TechnicalScore ?? 0)</span>
-                            <span class="badge bg-success" style="font-size:0.65rem" title="Novelty">N:@(article.NoveltyScore ?? 0)</span>
-                            <span class="badge bg-warning text-dark" style="font-size:0.65rem" title="Impact">I:@(article.ImpactScore ?? 0)</span>
-                            <span class="badge bg-secondary" style="font-size:0.65rem" title="Quality">Q:@(article.QualityScore ?? 0)</span>
-                            <span class="badge bg-primary" style="font-size:0.65rem" title="Relevance">R:@(article.RelevanceScore?.ToString("F0") ?? "-")</span>
-                            <strong class="ms-1">@article.FinalScore.ToString("F1")</strong>点
-                        </span>
-                    }
-                    else if (isScoring)
-                    {
-                        <span class="ms-auto text-warning scoring-indicator">採点中...</span>
-                    }
+                    <span class="ms-auto d-flex align-items-center gap-1" title="最終スコア = 品質(@(article.LlmScore?.ToString("F0") ?? "-")) × 関連度(@(article.RelevanceScore?.ToString("F0") ?? "-")/10)">
+                        <span class="badge bg-info" style="font-size:0.65rem">技術:@(article.TechnicalScore ?? 0)</span>
+                        <span class="badge bg-success" style="font-size:0.65rem">新規:@(article.NoveltyScore ?? 0)</span>
+                        <span class="badge bg-warning text-dark" style="font-size:0.65rem">影響:@(article.ImpactScore ?? 0)</span>
+                        <span class="badge bg-secondary" style="font-size:0.65rem">品質:@(article.QualityScore ?? 0)</span>
+                        <span class="badge bg-primary" style="font-size:0.65rem">関連:@(article.RelevanceScore?.ToString("F0") ?? "-")</span>
+                        <strong class="ms-1">@article.FinalScore.ToString("F1")</strong>点
+                    </span>
                 </div>
 
                 @* Summary (prefer Japanese) - expanded content *@
@@ -235,10 +302,7 @@ else
                 </div>
             </div>
 
-            @if (hasScore)
-            {
-                rank++;
-            }
+            rank++;
         }
     </div>
 }
@@ -293,10 +357,14 @@ else
 
     private void UpdateCollectionStatuses()
     {
+        // 進行中のステータスを表示（完了済みは除外、失敗は5分間表示）
         collectionStatuses = CollectionQueue.GetAllStatuses()
             .Where(s => s.State == CollectionState.Queued ||
                         s.State == CollectionState.Collecting ||
-                        s.State == CollectionState.Scoring)
+                        s.State == CollectionState.Scoring ||
+                        (s.State == CollectionState.Failed && s.CompletedAt > DateTime.UtcNow.AddMinutes(-5)))
+            .OrderBy(s => s.State == CollectionState.Failed ? 1 : 0) // 失敗を後ろに
+            .ThenBy(s => s.StartedAt)
             .ToList();
     }
 
@@ -330,10 +398,12 @@ else
             newArticles = newArticles.Where(a => a.SourceId == selectedSourceId.Value);
         }
 
-        // Sort: scored articles by FinalScore desc, unscored by CollectedAt desc
+        // Only show scored articles (filter out unscored)
+        newArticles = newArticles.Where(a => a.LlmScore.HasValue);
+
+        // Sort by FinalScore desc
         articles = newArticles
-            .OrderByDescending(a => a.LlmScore.HasValue ? 1 : 0)
-            .ThenByDescending(a => a.LlmScore.HasValue ? a.FinalScore : 0)
+            .OrderByDescending(a => a.FinalScore)
             .ThenByDescending(a => a.CollectedAt)
             .Take(topCount);
 

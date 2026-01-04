@@ -4,6 +4,7 @@
 @inject IKeywordService KeywordService
 @inject ICollectionQueue CollectionQueue
 @inject NavigationManager Navigation
+@implements IAsyncDisposable
 
 <PageTitle>キーワード - QInfoRanker</PageTitle>
 
@@ -25,6 +26,16 @@
         </button>
     </div>
     <small class="text-muted">AIがキーワードに最適なソースを自動選定します</small>
+</div>
+
+@* デバッグモードチェックボックス *@
+<div class="mb-3">
+    <div class="form-check">
+        <input type="checkbox" class="form-check-input" id="debugMode" @bind="debugMode" />
+        <label class="form-check-label" for="debugMode">
+            デバッグモード（各ソース3件のみ収集 - UI確認用）
+        </label>
+    </div>
 </div>
 
 @if (!string.IsNullOrEmpty(statusMessage))
@@ -106,13 +117,14 @@ else
                         {
                             <button class="btn btn-sm btn-warning" disabled>
                                 <span class="spinner-border spinner-border-sm" role="status"></span>
-                                @GetStatusText(status.State)
+                                @GetStatusText(status)
                             </button>
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-success" @onclick="() => CollectForKeyword(keyword.Id, keyword.Term)">
-                                収集
+                            <button class="btn btn-sm @(debugMode ? "btn-outline-success" : "btn-success")"
+                                    @onclick="() => CollectForKeyword(keyword.Id, keyword.Term)">
+                                @(debugMode ? "収集 (Debug)" : "収集")
                             </button>
                         }
                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActive(keyword.Id)">
@@ -128,8 +140,8 @@ else
     </table>
 
     <div class="mt-3">
-        <button class="btn btn-primary" @onclick="CollectAll">
-            全キーワードを収集
+        <button class="btn @(debugMode ? "btn-outline-primary" : "btn-primary")" @onclick="CollectAll">
+            @(debugMode ? "全キーワードを収集 (Debug)" : "全キーワードを収集")
         </button>
         <a href="/ranking" class="btn btn-outline-primary ms-2">
             ランキングを見る
@@ -145,6 +157,7 @@ else
     private bool isError = false;
     private int? editingKeywordId;
     private string editingAliases = string.Empty;
+    private bool debugMode = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -250,11 +263,15 @@ else
         var job = new CollectionJob
         {
             KeywordId = keywordId,
-            KeywordTerm = term
+            KeywordTerm = term,
+            DebugMode = debugMode,
+            DebugArticleLimit = 3
         };
 
         await CollectionQueue.EnqueueAsync(job);
-        statusMessage = $"「{term}」の収集をバックグラウンドで開始しました。ランキングページで結果を確認できます。";
+
+        var modeLabel = debugMode ? "（デバッグモード）" : "";
+        statusMessage = $"「{term}」の収集{modeLabel}をバックグラウンドで開始しました。ランキングページで結果を確認できます。";
         isError = false;
         StateHasChanged();
 
@@ -271,23 +288,46 @@ else
             var job = new CollectionJob
             {
                 KeywordId = keyword.Id,
-                KeywordTerm = keyword.Term
+                KeywordTerm = keyword.Term,
+                DebugMode = debugMode,
+                DebugArticleLimit = 3
             };
             await CollectionQueue.EnqueueAsync(job);
         }
 
-        statusMessage = "全キーワードの収集をバックグラウンドで開始しました。";
+        var modeLabel = debugMode ? "（デバッグモード）" : "";
+        statusMessage = $"全キーワードの収集{modeLabel}をバックグラウンドで開始しました。";
         isError = false;
         StateHasChanged();
 
         Navigation.NavigateTo("/ranking");
     }
 
-    private string GetStatusText(CollectionState state) => state switch
+    private string GetStatusText(CollectionStatus status)
     {
-        CollectionState.Queued => "待機中...",
-        CollectionState.Collecting => "収集中...",
-        CollectionState.Scoring => "スコアリング中...",
-        _ => "処理中..."
-    };
+        var baseText = status.State switch
+        {
+            CollectionState.Queued => "待機中...",
+            CollectionState.Collecting => status.CurrentSource != null
+                ? $"{status.CurrentSource}から収集中..."
+                : "収集中...",
+            CollectionState.Scoring => status.CurrentSource != null
+                ? $"{status.CurrentSource}をスコアリング中..."
+                : "スコアリング中...",
+            _ => "処理中..."
+        };
+
+        // 進捗情報があれば追加
+        if (status.TotalSources > 0)
+        {
+            baseText += $" ({status.SourceIndex}/{status.TotalSources})";
+        }
+
+        return baseText;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
 }

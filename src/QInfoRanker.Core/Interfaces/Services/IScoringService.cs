@@ -18,6 +18,12 @@ public interface IScoringService
         IEnumerable<string> keywords,
         bool skipRelevanceFilter = false,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// AIサービスの利用可能性をチェック
+    /// </summary>
+    /// <returns>利用可能な場合true、そうでない場合は例外をスロー</returns>
+    Task<bool> HealthCheckAsync(CancellationToken cancellationToken = default);
 }
 
 #region バッチスコアリング結果クラス
