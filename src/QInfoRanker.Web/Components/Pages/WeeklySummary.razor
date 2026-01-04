@@ -1,0 +1,203 @@
+@page "/weekly-summary"
+@rendermode InteractiveServer
+@using QInfoRanker.Core.Entities
+@using Markdig
+@inject IWeeklySummaryService SummaryService
+@inject IKeywordService KeywordService
+
+<PageTitle>Weekly Summary - QInfoRanker</PageTitle>
+
+<style>
+    .summary-content {
+        line-height: 1.8;
+        font-size: 1rem;
+    }
+    .summary-content h2 {
+        font-size: 1.5rem;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #dee2e6;
+    }
+    .summary-content h3 {
+        font-size: 1.25rem;
+        margin-top: 1.25rem;
+        margin-bottom: 0.75rem;
+        color: #495057;
+    }
+    .summary-content ul, .summary-content ol {
+        margin-bottom: 1rem;
+    }
+    .summary-content li {
+        margin-bottom: 0.5rem;
+    }
+    .summary-meta {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+    .summary-card {
+        transition: box-shadow 0.2s ease;
+    }
+    .summary-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .past-summary-item {
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+    .past-summary-item:hover {
+        background-color: #f8f9fa;
+    }
+</style>
+
+<h1>Weekly Summary</h1>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <label class="form-label">Keyword</label>
+        <select class="form-select" @onchange="OnKeywordChanged">
+            <option value="">-- Select Keyword --</option>
+            @foreach (var keyword in keywords)
+            {
+                <option value="@keyword.Id" selected="@(selectedKeywordId == keyword.Id)">@keyword.Term</option>
+            }
+        </select>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else if (selectedKeywordId == null)
+{
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>
+        Select a keyword to view the weekly summary.
+    </div>
+}
+else if (currentSummary == null)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        No weekly summary is available for this keyword yet.
+        <br><small class="text-muted">Summaries are automatically generated when article collection completes.</small>
+    </div>
+}
+else
+{
+    <div class="card summary-card mb-4">
+        <div class="card-header bg-primary text-white">
+            <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">@currentSummary.Title</h4>
+                <span class="badge bg-light text-dark">
+                    @currentSummary.WeekStart.ToString("M/d") - @currentSummary.WeekEnd.ToString("M/d")
+                </span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="summary-meta mb-3">
+                <span class="me-3">
+                    <i class="bi bi-file-text me-1"></i>
+                    @currentSummary.ArticleCount articles referenced
+                </span>
+                <span>
+                    <i class="bi bi-clock me-1"></i>
+                    Generated: @currentSummary.GeneratedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")
+                </span>
+            </div>
+            <hr />
+            <div class="summary-content">
+                @((MarkupString)RenderMarkdown(currentSummary.Content))
+            </div>
+        </div>
+    </div>
+}
+
+@if (pastSummaries.Any())
+{
+    <h3 class="mt-5 mb-3">Past Summaries</h3>
+    <div class="list-group">
+        @foreach (var summary in pastSummaries)
+        {
+            <div class="list-group-item past-summary-item d-flex justify-content-between align-items-center"
+                 @onclick="() => SelectSummary(summary)">
+                <div>
+                    <h6 class="mb-1">@summary.Title</h6>
+                    <small class="text-muted">
+                        @summary.WeekStart.ToString("M/d") - @summary.WeekEnd.ToString("M/d")
+                        (@summary.ArticleCount articles)
+                    </small>
+                </div>
+                <span class="badge bg-secondary">@summary.Keyword?.Term</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<Keyword> keywords = new();
+    private int? selectedKeywordId;
+    private Core.Entities.WeeklySummary? currentSummary;
+    private List<Core.Entities.WeeklySummary> pastSummaries = new();
+    private bool isLoading = false;
+
+    private static readonly MarkdownPipeline _markdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
+
+    protected override async Task OnInitializedAsync()
+    {
+        keywords = (await KeywordService.GetActiveAsync()).ToList();
+        pastSummaries = (await SummaryService.GetSummariesAsync(null, 20)).ToList();
+    }
+
+    private async Task OnKeywordChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var keywordId))
+        {
+            selectedKeywordId = keywordId;
+            await LoadSummary();
+        }
+        else
+        {
+            selectedKeywordId = null;
+            currentSummary = null;
+        }
+    }
+
+    private async Task LoadSummary()
+    {
+        if (selectedKeywordId == null) return;
+
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            currentSummary = await SummaryService.GetCurrentWeekSummaryAsync(selectedKeywordId.Value);
+            pastSummaries = (await SummaryService.GetSummariesAsync(selectedKeywordId.Value, 10)).ToList();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SelectSummary(Core.Entities.WeeklySummary summary)
+    {
+        currentSummary = summary;
+        selectedKeywordId = summary.KeywordId;
+    }
+
+    private static string RenderMarkdown(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown)) return string.Empty;
+        return Markdown.ToHtml(markdown, _markdownPipeline);
+    }
+}

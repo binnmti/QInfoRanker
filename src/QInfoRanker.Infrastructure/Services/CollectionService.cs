@@ -14,6 +14,7 @@ public class CollectionService : ICollectionService
     private readonly ISourceService _sourceService;
     private readonly IArticleService _articleService;
     private readonly IScoringService _scoringService;
+    private readonly IWeeklySummaryService _weeklySummaryService;
     private readonly IEnumerable<ICollector> _collectors;
     private readonly ICollectionProgressNotifier _progressNotifier;
     private readonly ILogger<CollectionService> _logger;
@@ -23,6 +24,7 @@ public class CollectionService : ICollectionService
         ISourceService sourceService,
         IArticleService articleService,
         IScoringService scoringService,
+        IWeeklySummaryService weeklySummaryService,
         IEnumerable<ICollector> collectors,
         ICollectionProgressNotifier progressNotifier,
         ILogger<CollectionService> logger)
@@ -31,6 +33,7 @@ public class CollectionService : ICollectionService
         _sourceService = sourceService;
         _articleService = articleService;
         _scoringService = scoringService;
+        _weeklySummaryService = weeklySummaryService;
         _collectors = collectors;
         _progressNotifier = progressNotifier;
         _logger = logger;
@@ -214,6 +217,20 @@ public class CollectionService : ICollectionService
         _logger.LogInformation(
             "Collection completed for '{Keyword}': {Total} articles, {Scored} scored, {Duration:F1}s",
             keyword.Term, allSavedArticles.Count, allSavedArticles.Count(a => a.LlmScore.HasValue), stopwatch.Elapsed.TotalSeconds);
+
+        // 週次まとめを生成（既存の場合はスキップ）
+        try
+        {
+            var summary = await _weeklySummaryService.GenerateSummaryIfNeededAsync(keywordId, cancellationToken);
+            if (summary != null)
+            {
+                _logger.LogInformation("Generated weekly summary for '{Keyword}': {Title}", keyword.Term, summary.Title);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate weekly summary for '{Keyword}'", keyword.Term);
+        }
     }
 
     private async Task<IEnumerable<Article>> CollectFromSourceSafeAsync(

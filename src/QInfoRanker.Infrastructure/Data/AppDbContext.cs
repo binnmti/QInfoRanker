@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<Keyword> Keywords => Set<Keyword>();
     public DbSet<Source> Sources => Set<Source>();
     public DbSet<Article> Articles => Set<Article>();
+    public DbSet<WeeklySummary> WeeklySummaries => Set<WeeklySummary>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

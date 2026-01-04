@@ -71,9 +71,10 @@ public static class DependencyInjection
         services.AddScoped<IKeywordService, KeywordService>();
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IArticleService, ArticleService>();
-        services.AddScoped<ICollectionService, CollectionService>();
         services.AddScoped<IScoringService, ScoringService>();
         services.AddScoped<ISourceRecommendationService, SourceRecommendationService>();
+        services.AddScoped<IWeeklySummaryService, WeeklySummaryService>();
+        services.AddScoped<ICollectionService, CollectionService>();
 
         // Background collection queue (Singleton for shared state)
         services.AddSingleton<ICollectionQueue, CollectionQueue>();
