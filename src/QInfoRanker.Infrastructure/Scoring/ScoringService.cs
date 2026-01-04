@@ -122,8 +122,8 @@ public class ScoringService : IScoringService
             var normalizedNative = NormalizeNativeScore(article.NativeScore, source.Name);
             var llmScore = article.LlmScore ?? 0;
 
-            baseScore = (normalizedNative * _scoringOptions.NativeScoreWeight) +
-                        (llmScore * _scoringOptions.LlmScoreWeight);
+            baseScore = (normalizedNative * _scoringOptions.EffectiveNativeScoreWeight) +
+                        (llmScore * _scoringOptions.EffectiveLlmScoreWeight);
         }
         else
         {
@@ -583,7 +583,7 @@ public class ScoringService : IScoringService
                     if (index >= 0 && index < batch.Count)
                     {
                         var article = batch[index];
-                        var isRelevant = eval.Relevance >= _batchOptions.RelevanceThreshold;
+                        var isRelevant = eval.Relevance >= _batchOptions.EffectiveRelevanceThreshold;
 
                         _logger.LogDebug("記事評価: ID={Id}, Title='{Title}', Relevance={Relevance}, IsRelevant={IsRelevant}",
                             article.Id, article.Title?.Substring(0, Math.Min(30, article.Title?.Length ?? 0)),
@@ -637,7 +637,7 @@ public class ScoringService : IScoringService
         // 結果サマリーをログ出力
         var relevantCount = results.Count(r => r.IsRelevant);
         _logger.LogInformation("関連性評価結果: {Relevant}/{Total}件が関連あり (閾値: {Threshold})",
-            relevantCount, results.Count, _batchOptions.RelevanceThreshold);
+            relevantCount, results.Count, _batchOptions.EffectiveRelevanceThreshold);
 
         return results;
     }
