@@ -12,4 +12,5 @@ public interface IArticleService
     Task<Article> UpdateAsync(Article article, CancellationToken cancellationToken = default);
     Task<IEnumerable<Article>> CreateBatchAsync(IEnumerable<Article> articles, CancellationToken cancellationToken = default);
     Task DeleteAsync(int id, CancellationToken cancellationToken = default);
+    Task<int> DeleteByKeywordAsync(int keywordId, CancellationToken cancellationToken = default);
 }

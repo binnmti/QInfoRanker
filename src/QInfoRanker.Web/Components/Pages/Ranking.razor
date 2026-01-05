@@ -46,6 +46,20 @@
         font-size: 0.7rem;
         color: #6c757d;
     }
+    /* 横スクロールを防止（記事一覧のみ） */
+    .article-item {
+        overflow-x: hidden;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    .article-item p {
+        word-break: break-all;
+    }
+    .collection-status-card {
+        overflow-x: hidden;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
 </style>
 
 <h1>Ranking</h1>
@@ -62,7 +76,7 @@
             var isFailed = status.State == CollectionState.Failed;
             var alertClass = isFailed ? "alert-danger" : (status.HasFatalError ? "alert-danger" : "alert-info");
 
-            <div class="alert @alertClass mb-2">
+            <div class="alert @alertClass mb-2 collection-status-card">
                 @* Header row *@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="d-flex align-items-center">
@@ -84,17 +98,22 @@
                     </small>
                 </div>
 
-                @* Progress bar *@
+                @* Progress bar and status message (separated to avoid text cutoff) *@
                 @if (status.TotalSources > 0 && !isFailed)
                 {
-                    <div class="progress mb-2" style="height: 20px;">
+                    <div class="mb-1 small">
+                        <span class="badge @(status.State == CollectionState.Scoring ? "bg-success" : "bg-primary") me-2">
+                            @(status.State == CollectionState.Scoring ? "スコアリング" : "収集中")
+                        </span>
+                        @(status.Message ?? GetStatusText(status.State))
+                    </div>
+                    <div class="progress mb-2" style="height: 8px;">
                         <div class="progress-bar @(status.State == CollectionState.Scoring ? "bg-success" : "bg-primary")"
                              role="progressbar"
                              style="width: @progressPercent%;"
                              aria-valuenow="@progressPercent"
                              aria-valuemin="0"
                              aria-valuemax="100">
-                            @(status.Message ?? GetStatusText(status.State))
                         </div>
                     </div>
                 }
@@ -109,6 +128,13 @@
                         <i class="bi bi-check-circle"></i>
                         スコア済: <strong>@status.ArticlesScored</strong>件
                     </span>
+                    @if (status.TotalInputTokens > 0 || status.TotalOutputTokens > 0)
+                    {
+                        <span class="text-info" title="入力: @status.TotalInputTokens.ToString("N0") / 出力: @status.TotalOutputTokens.ToString("N0")">
+                            <i class="bi bi-currency-dollar"></i>
+                            $@status.EstimatedCostUsd.ToString("F4")
+                        </span>
+                    }
                     <small class="text-muted ms-auto">
                         @if (status.StartedAt != default)
                         {
@@ -153,6 +179,59 @@
                                 @result.SourceName (@result.ArticleCount)
                             </span>
                         }
+                    </div>
+                }
+
+                @* 処理中の記事（採点待ち + 取得中を統合表示、全件スクロール可能）*@
+                @{
+                    var totalProcessing = status.PendingScoringPreviews.Count + status.FetchedPreviews.Count;
+                }
+                @if (totalProcessing > 0)
+                {
+                    <div class="mt-2">
+                        <small class="text-muted d-block mb-1">
+                            処理中 (@(totalProcessing)件)
+                            @if (status.PendingScoringPreviews.Any())
+                            {
+                                <span class="badge bg-success ms-1" style="font-size: 0.6rem;">採点待ち @(status.PendingScoringPreviews.Count)</span>
+                            }
+                            @if (status.FetchedPreviews.Any())
+                            {
+                                <span class="badge bg-secondary ms-1" style="font-size: 0.6rem;">取得中 @(status.FetchedPreviews.Count)</span>
+                            }
+                        </small>
+                        <div class="list-group list-group-flush" style="max-height: 180px; overflow-y: auto;">
+                            @* 採点待ち（全件表示）*@
+                            @foreach (var preview in status.PendingScoringPreviews.OrderByDescending(p => p.RelevanceScore))
+                            {
+                                <div class="list-group-item py-1 px-2 border-start border-success border-2" style="font-size: 0.7rem; background-color: #f8fff8;">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <a href="@preview.Url" target="_blank" class="text-truncate text-decoration-none" style="max-width: 70%;" title="@preview.Title">
+                                            @(preview.Title.Length > 45 ? preview.Title[..45] + "..." : preview.Title)
+                                        </a>
+                                        <div class="d-flex gap-1">
+                                            <span class="badge bg-success" style="font-size: 0.55rem;">採点待</span>
+                                            <span class="badge bg-light text-dark" style="font-size: 0.55rem;">@preview.SourceName</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            @* 取得中（全件表示）*@
+                            @foreach (var preview in status.FetchedPreviews.OrderByDescending(p => p.FetchedAt))
+                            {
+                                <div class="list-group-item py-1 px-2" style="font-size: 0.7rem;">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <a href="@preview.Url" target="_blank" class="text-truncate text-decoration-none text-muted" style="max-width: 70%;" title="@preview.Title">
+                                            @(preview.Title.Length > 45 ? preview.Title[..45] + "..." : preview.Title)
+                                        </a>
+                                        <div class="d-flex gap-1">
+                                            <span class="badge bg-secondary" style="font-size: 0.55rem;">取得中</span>
+                                            <span class="badge bg-light text-dark" style="font-size: 0.55rem;">@preview.SourceName</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
                     </div>
                 }
             </div>
@@ -268,19 +347,24 @@ else
                     {
                         <span title="Popularity (likes, bookmarks)">★@article.NativeScore</span>
                     }
-                    <span class="ms-auto d-flex align-items-center gap-1" title="最終スコア = 品質(@(article.LlmScore?.ToString("F0") ?? "-")) × 関連度(@(article.RelevanceScore?.ToString("F0") ?? "-")/10)">
-                        <span class="badge bg-info" style="font-size:0.65rem">技術:@(article.TechnicalScore ?? 0)</span>
-                        <span class="badge bg-success" style="font-size:0.65rem">新規:@(article.NoveltyScore ?? 0)</span>
-                        <span class="badge bg-warning text-dark" style="font-size:0.65rem">影響:@(article.ImpactScore ?? 0)</span>
-                        <span class="badge bg-secondary" style="font-size:0.65rem">品質:@(article.QualityScore ?? 0)</span>
-                        <span class="badge bg-primary" style="font-size:0.65rem">関連:@(article.RelevanceScore?.ToString("F0") ?? "-")</span>
-                        <strong class="ms-1">@article.FinalScore.ToString("F1")</strong>点
+                    @{
+                        var relevance20 = (article.RelevanceScore ?? 5) * 2;
+                    }
+                    <span class="ms-auto d-flex align-items-center gap-1"
+                          title="5項目×20点=100点満点&#10;技術:@(article.TechnicalScore ?? 0) + 新規:@(article.NoveltyScore ?? 0) + 影響:@(article.ImpactScore ?? 0) + 品質:@(article.QualityScore ?? 0) + 関連:@(relevance20) = @article.FinalScore.ToString("F0")">
+                        <span class="badge bg-info" style="font-size:0.6rem" title="技術的深さ (20点)">技@(article.TechnicalScore ?? 0)</span>
+                        <span class="badge bg-success" style="font-size:0.6rem" title="新規性 (20点)">新@(article.NoveltyScore ?? 0)</span>
+                        <span class="badge bg-warning text-dark" style="font-size:0.6rem" title="影響度 (20点)">影@(article.ImpactScore ?? 0)</span>
+                        <span class="badge bg-secondary" style="font-size:0.6rem" title="執筆品質 (20点)">質@(article.QualityScore ?? 0)</span>
+                        <span class="badge bg-primary" style="font-size:0.6rem" title="関連性 (20点)">関@(relevance20)</span>
+                        <strong class="ms-1">@article.FinalScore.ToString("F0")</strong><span style="font-size:0.7rem">点</span>
                     </span>
                 </div>
 
                 @* Summary (prefer Japanese) - expanded content *@
                 @{
-                    var displaySummary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
+                    var rawSummary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
+                    var displaySummary = StripHtmlTags(rawSummary);
                 }
                 @if (!string.IsNullOrEmpty(displaySummary))
                 {
@@ -438,6 +522,19 @@ else
         Language.Both => "bg-success",
         _ => "bg-secondary"
     };
+
+    // HTMLタグを除去してプレーンテキストを取得
+    private static string StripHtmlTags(string? html)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+        // HTMLタグを除去
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
+        // HTMLエンティティをデコード
+        text = System.Net.WebUtility.HtmlDecode(text);
+        // 連続する空白を1つに
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
+        return text.Trim();
+    }
 
     public void Dispose()
     {

@@ -9,4 +9,5 @@ public interface IWeeklySummaryService
     Task<WeeklySummary?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<WeeklySummary> GenerateSummaryAsync(int keywordId, CancellationToken cancellationToken = default);
     Task<WeeklySummary?> GenerateSummaryIfNeededAsync(int keywordId, CancellationToken cancellationToken = default);
+    Task<int> DeleteByKeywordAsync(int keywordId, CancellationToken cancellationToken = default);
 }

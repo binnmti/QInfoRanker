@@ -142,4 +142,18 @@ public class ArticleService : IArticleService
             await _context.SaveChangesAsync(cancellationToken);
         }
     }
+
+    public async Task<int> DeleteByKeywordAsync(int keywordId, CancellationToken cancellationToken = default)
+    {
+        var articles = await _context.Articles
+            .Where(a => a.KeywordId == keywordId)
+            .ToListAsync(cancellationToken);
+
+        if (articles.Count == 0)
+            return 0;
+
+        _context.Articles.RemoveRange(articles);
+        await _context.SaveChangesAsync(cancellationToken);
+        return articles.Count;
+    }
 }

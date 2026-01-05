@@ -59,6 +59,19 @@ public class SourceService : ISourceService
 
     public async Task<Source> CreateAsync(Source source, CancellationToken cancellationToken = default)
     {
+        // 重複チェック: 同じKeywordIdと名前の組み合わせが既に存在するかチェック
+        var existingSource = await _context.Sources.FirstOrDefaultAsync(
+            s => s.KeywordId == source.KeywordId &&
+                 s.Name == source.Name &&
+                 !s.IsTemplate,
+            cancellationToken);
+
+        if (existingSource != null)
+        {
+            // 既存のソースを返す（重複作成を防ぐ）
+            return existingSource;
+        }
+
         source.CreatedAt = DateTime.UtcNow;
         _context.Sources.Add(source);
         await _context.SaveChangesAsync(cancellationToken);
@@ -95,10 +108,24 @@ public class SourceService : ISourceService
     public async Task<IEnumerable<Source>> CreateFromTemplatesAsync(int keywordId, CancellationToken cancellationToken = default)
     {
         var templates = await GetTemplateSourcesAsync(cancellationToken);
+
+        // 既存のソース名を取得して重複チェック
+        var existingNames = await _context.Sources
+            .Where(s => s.KeywordId == keywordId && !s.IsTemplate)
+            .Select(s => s.Name)
+            .ToListAsync(cancellationToken);
+        var existingNameSet = new HashSet<string>(existingNames, StringComparer.OrdinalIgnoreCase);
+
         var newSources = new List<Source>();
 
         foreach (var template in templates)
         {
+            // 重複スキップ
+            if (existingNameSet.Contains(template.Name))
+            {
+                continue;
+            }
+
             var source = new Source
             {
                 KeywordId = keywordId,
@@ -116,9 +143,14 @@ public class SourceService : ISourceService
             };
             _context.Sources.Add(source);
             newSources.Add(source);
+            existingNameSet.Add(template.Name);
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        if (newSources.Any())
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
         return newSources;
     }
 }

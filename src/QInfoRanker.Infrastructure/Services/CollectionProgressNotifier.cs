@@ -82,6 +82,102 @@ public class CollectionProgressNotifier : ICollectionProgressNotifier
         return Task.CompletedTask;
     }
 
+    public Task NotifyArticlesFetchedAsync(ArticlesFetchedEvent evt)
+    {
+        var status = _queue.GetStatus(evt.KeywordId);
+        if (status != null)
+        {
+            // 取得した記事のプレビューを追加
+            foreach (var article in evt.Articles)
+            {
+                status.FetchedPreviews.Add(new FetchedArticlePreview
+                {
+                    Title = article.Title,
+                    Url = article.Url,
+                    SourceName = evt.SourceName,
+                    PublishedAt = article.PublishedAt,
+                    NativeScore = article.NativeScore,
+                    FetchedAt = DateTime.UtcNow
+                });
+            }
+            _queue.UpdateStatus(evt.KeywordId, status);
+        }
+
+        _logger.LogDebug("Articles fetched: {Source} - {Count} articles",
+            evt.SourceName, evt.Articles.Count);
+
+        return Task.CompletedTask;
+    }
+
+    public Task NotifyArticlesPassedFilterAsync(ArticlesPassedFilterEvent evt)
+    {
+        var status = _queue.GetStatus(evt.KeywordId);
+        if (status != null)
+        {
+            // フィルタリング完了したので、このソースの取得中プレビューをクリア
+            status.FetchedPreviews.RemoveAll(p => p.SourceName == evt.SourceName);
+
+            // フィルタ通過記事をプレビューに追加
+            foreach (var article in evt.Articles)
+            {
+                status.PendingScoringPreviews.Add(new PendingScoringPreview
+                {
+                    ArticleId = article.ArticleId,
+                    Title = article.Title,
+                    Url = article.Url,
+                    SourceName = evt.SourceName,
+                    PublishedAt = article.PublishedAt,
+                    NativeScore = article.NativeScore,
+                    RelevanceScore = article.RelevanceScore,
+                    PassedFilterAt = DateTime.UtcNow
+                });
+            }
+            _queue.UpdateStatus(evt.KeywordId, status);
+        }
+
+        _logger.LogDebug("Articles passed filter: {Source} - {Count} articles",
+            evt.SourceName, evt.Articles.Count);
+
+        return Task.CompletedTask;
+    }
+
+    public Task NotifyArticlesQualityScoredAsync(int keywordId, IEnumerable<ScoredArticlePreview> scoredArticles)
+    {
+        var status = _queue.GetStatus(keywordId);
+        if (status != null)
+        {
+            var scoredList = scoredArticles.ToList();
+            var idsToRemove = new HashSet<int>(scoredList.Select(a => a.ArticleId));
+
+            // 採点待ちリストから削除
+            var removedCount = status.PendingScoringPreviews.RemoveAll(p => idsToRemove.Contains(p.ArticleId));
+
+            // スコア済みリストに追加（即時表示用）
+            status.ScoredArticlePreviews.AddRange(scoredList);
+
+            if (removedCount > 0 || scoredList.Any())
+            {
+                _queue.UpdateStatus(keywordId, status);
+                _logger.LogDebug("Moved {Count} articles from pending to scored list", scoredList.Count);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task NotifyTokenUsageAsync(int keywordId, int inputTokens, int outputTokens)
+    {
+        var status = _queue.GetStatus(keywordId);
+        if (status != null)
+        {
+            status.TotalInputTokens += inputTokens;
+            status.TotalOutputTokens += outputTokens;
+            _queue.UpdateStatus(keywordId, status);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task NotifyCompletedAsync(CollectionCompletedEvent evt)
     {
         var status = _queue.GetStatus(evt.KeywordId);
@@ -92,6 +188,10 @@ public class CollectionProgressNotifier : ICollectionProgressNotifier
             status.ArticlesCollected = evt.TotalArticles;
             status.ArticlesScored = evt.ScoredArticles;
             status.Message = $"完了: {evt.TotalArticles}件収集, {evt.ScoredArticles}件スコアリング";
+            // 完了時にプレビューをクリア
+            status.FetchedPreviews.Clear();
+            status.PendingScoringPreviews.Clear();
+            status.ScoredArticlePreviews.Clear();
             _queue.UpdateStatus(evt.KeywordId, status);
         }
 

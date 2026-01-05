@@ -12,7 +12,9 @@ namespace QInfoRanker.Tests.Integration;
 /// <summary>
 /// AIによる記事スコアリングの統合テスト
 /// 実際のAzure OpenAI APIを呼び出してテストする
+/// CI/CDでスキップ: dotnet test --filter "Category!=Integration"
 /// </summary>
+[Trait("Category", "Integration")]
 public class ScoringIntegrationTests : IDisposable
 {
     private readonly ITestOutputHelper _output;

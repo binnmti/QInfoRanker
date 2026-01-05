@@ -31,6 +31,13 @@
     .summary-content li {
         margin-bottom: 0.5rem;
     }
+    .summary-content a {
+        color: #0d6efd;
+        text-decoration: none;
+    }
+    .summary-content a:hover {
+        text-decoration: underline;
+    }
     .summary-meta {
         font-size: 0.875rem;
         color: #6c757d;
@@ -86,6 +93,29 @@ else if (currentSummary == null)
         <i class="bi bi-exclamation-triangle me-2"></i>
         No weekly summary is available for this keyword yet.
         <br><small class="text-muted">Summaries are automatically generated when article collection completes.</small>
+
+        <div class="mt-3">
+            <button class="btn btn-primary" @onclick="GenerateSummary" disabled="@isGenerating">
+                @if (isGenerating)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    <span>Generating...</span>
+                }
+                else
+                {
+                    <i class="bi bi-magic me-2"></i>
+                    <span>Generate Summary Now (Debug)</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(generateError))
+        {
+            <div class="alert alert-danger mt-3 mb-0">
+                <i class="bi bi-exclamation-circle me-2"></i>
+                @generateError
+            </div>
+        }
     </div>
 }
 else
@@ -118,6 +148,42 @@ else
     </div>
 }
 
+@* Debug Tools Section *@
+@if (selectedKeywordId != null)
+{
+    <div class="card border-warning mt-4">
+        <div class="card-header bg-warning text-dark">
+            <i class="bi bi-tools me-2"></i>Debug Tools
+        </div>
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <span class="text-muted">
+                    <i class="bi bi-journal-text me-1"></i>
+                    Summaries: <strong>@summaryCount</strong>
+                </span>
+                <button class="btn btn-outline-danger btn-sm" @onclick="DeleteSummaries" disabled="@isDeleting">
+                    @if (isDeleting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        <span>Deleting...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-trash me-1"></i>
+                        <span>Delete All Summaries (Debug)</span>
+                    }
+                </button>
+            </div>
+            @if (!string.IsNullOrEmpty(deleteMessage))
+            {
+                <div class="alert @(deleteMessage.Contains("エラー") ? "alert-danger" : "alert-success") mt-3 mb-0">
+                    @deleteMessage
+                </div>
+            }
+        </div>
+    </div>
+}
+
 @if (pastSummaries.Any())
 {
     <h3 class="mt-5 mb-3">Past Summaries</h3>
@@ -145,9 +211,15 @@ else
     private Core.Entities.WeeklySummary? currentSummary;
     private List<Core.Entities.WeeklySummary> pastSummaries = new();
     private bool isLoading = false;
+    private bool isGenerating = false;
+    private string? generateError;
+    private bool isDeleting = false;
+    private string? deleteMessage;
+    private int summaryCount = 0;
 
     private static readonly MarkdownPipeline _markdownPipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
+        .UseAutoLinks()
         .Build();
 
     protected override async Task OnInitializedAsync()
@@ -175,12 +247,14 @@ else
         if (selectedKeywordId == null) return;
 
         isLoading = true;
+        deleteMessage = null;
         StateHasChanged();
 
         try
         {
             currentSummary = await SummaryService.GetCurrentWeekSummaryAsync(selectedKeywordId.Value);
             pastSummaries = (await SummaryService.GetSummariesAsync(selectedKeywordId.Value, 10)).ToList();
+            summaryCount = pastSummaries.Count;
         }
         finally
         {
@@ -195,9 +269,71 @@ else
         selectedKeywordId = summary.KeywordId;
     }
 
+    private async Task GenerateSummary()
+    {
+        if (selectedKeywordId == null) return;
+
+        isGenerating = true;
+        generateError = null;
+        StateHasChanged();
+
+        try
+        {
+            var summary = await SummaryService.GenerateSummaryAsync(selectedKeywordId.Value);
+            if (summary != null)
+            {
+                currentSummary = summary;
+                pastSummaries = (await SummaryService.GetSummariesAsync(selectedKeywordId.Value, 10)).ToList();
+            }
+            else
+            {
+                generateError = "サマリーの生成に失敗しました。対象となる記事が見つからない可能性があります。";
+            }
+        }
+        catch (Exception ex)
+        {
+            generateError = $"エラーが発生しました: {ex.Message}";
+        }
+        finally
+        {
+            isGenerating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteSummaries()
+    {
+        if (selectedKeywordId == null) return;
+
+        isDeleting = true;
+        deleteMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var deletedCount = await SummaryService.DeleteByKeywordAsync(selectedKeywordId.Value);
+            currentSummary = null;
+            pastSummaries.Clear();
+            summaryCount = 0;
+            deleteMessage = $"{deletedCount}件のサマリーを削除しました。";
+        }
+        catch (Exception ex)
+        {
+            deleteMessage = $"エラーが発生しました: {ex.Message}";
+        }
+        finally
+        {
+            isDeleting = false;
+            StateHasChanged();
+        }
+    }
+
     private static string RenderMarkdown(string markdown)
     {
         if (string.IsNullOrEmpty(markdown)) return string.Empty;
-        return Markdown.ToHtml(markdown, _markdownPipeline);
+        var html = Markdown.ToHtml(markdown, _markdownPipeline);
+        // 全てのリンクを新しいタブで開くように修正
+        html = html.Replace("<a href=", "<a target=\"_blank\" rel=\"noopener noreferrer\" href=");
+        return html;
     }
 }

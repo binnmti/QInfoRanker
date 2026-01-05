@@ -175,6 +175,7 @@ public class WeeklySummaryService : IWeeklySummaryService
             var article = articles[i];
             var summary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
             articleList.AppendLine($"{i + 1}. 【{article.Title}】");
+            articleList.AppendLine($"   URL: {article.Url}");
             articleList.AppendLine($"   要約: {summary}");
             articleList.AppendLine($"   スコア: {article.FinalScore:F1} / ソース: {article.Source?.Name ?? "不明"}");
             articleList.AppendLine();
@@ -197,13 +198,14 @@ public class WeeklySummaryService : IWeeklySummaryService
 
             【本文の構成】
             1. **導入**（1-2段落）: 今週の{{keywordTerm}}に関する動向を簡潔に紹介
-            2. **今週のハイライト**（3-5トピック）: 重要なトピックを見出し付きで詳しく解説。各トピックは記事の内容を元に書く
+            2. **今週のハイライト**（7-10トピック）: 重要なトピックを見出し付きで詳しく解説。各トピックは記事の内容を元に書く
             3. **まとめ**（1段落）: 今週の総括
 
             【注意事項】
             - 記事の内容を元に、読み応えのあるニュース記事を書いてください
             - 技術用語は適度に使いつつ、分かりやすい表現を心がけてください
-            - 各ハイライトには該当する記事タイトルを参照として含めてください
+            - 各ハイライトの最後に出典としてMarkdownリンク形式で記事を参照してください
+            - 出典の形式: （出典: [記事タイトル](URL)）のようにMarkdownリンクで記載
             """;
 
         var messages = new List<ChatMessage>
@@ -214,7 +216,7 @@ public class WeeklySummaryService : IWeeklySummaryService
 
         var options = new ChatCompletionOptions
         {
-            MaxOutputTokenCount = 2000,
+            MaxOutputTokenCount = 4000,
             Temperature = 0.7f
         };
 
@@ -283,12 +285,28 @@ public class WeeklySummaryService : IWeeklySummaryService
         foreach (var article in articles.Take(5))
         {
             var summary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
-            sb.AppendLine($"- **{article.Title}**");
+            sb.AppendLine($"- **[{article.Title}]({article.Url})**");
             sb.AppendLine($"  - {summary}");
             sb.AppendLine();
         }
 
         return (title, sb.ToString());
+    }
+
+    public async Task<int> DeleteByKeywordAsync(int keywordId, CancellationToken cancellationToken = default)
+    {
+        var summaries = await _context.WeeklySummaries
+            .Where(w => w.KeywordId == keywordId)
+            .ToListAsync(cancellationToken);
+
+        if (summaries.Count == 0)
+            return 0;
+
+        _context.WeeklySummaries.RemoveRange(summaries);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Deleted {Count} weekly summaries for keyword {KeywordId}", summaries.Count, keywordId);
+        return summaries.Count;
     }
 
     private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()

@@ -123,6 +123,14 @@ dotnet test
 - 収集サービス: `Infrastructure/Services/CollectionService.cs`
 - バックグラウンド処理: `Infrastructure/Services/CollectionBackgroundService.cs`
 - 収集キュー: `Infrastructure/Services/CollectionQueue.cs`
+- 進捗通知: `Infrastructure/Services/CollectionProgressNotifier.cs`
+- イベント定義: `Core/Events/CollectionEvents.cs`
+
+### 進捗通知の仕組み
+収集処理は `IProgress<ScoringProgress>` コールバックを使用してリアルタイム進捗を報告:
+- **Stage 1 (フィルタリング)**: 関連性評価の進捗と通過件数を表示
+- **Stage 2 (スコアリング)**: 品質評価の進捗を表示
+- UIは5秒ごとのポーリングで `CollectionQueue.GetAllStatuses()` から更新
 
 ### スコアリング関連の変更
 - スコアリングサービス: `Infrastructure/Scoring/AzureOpenAIScoringService.cs`

@@ -78,6 +78,46 @@ public record CollectionErrorEvent(
 );
 
 /// <summary>
+/// 記事取得イベント（スクレイピング中の記事情報通知）
+/// </summary>
+public record ArticlesFetchedEvent(
+    int KeywordId,
+    string SourceName,
+    List<FetchedArticleInfo> Articles
+);
+
+/// <summary>
+/// 取得記事情報（スクレイピング段階）
+/// </summary>
+public record FetchedArticleInfo(
+    string Title,
+    string Url,
+    DateTime? PublishedAt,
+    int? NativeScore
+);
+
+/// <summary>
+/// フィルタ通過イベント（採点待ちの記事情報通知）
+/// </summary>
+public record ArticlesPassedFilterEvent(
+    int KeywordId,
+    string SourceName,
+    List<PassedFilterArticleInfo> Articles
+);
+
+/// <summary>
+/// フィルタ通過記事情報
+/// </summary>
+public record PassedFilterArticleInfo(
+    int ArticleId,
+    string Title,
+    string Url,
+    DateTime? PublishedAt,
+    int? NativeScore,
+    double RelevanceScore
+);
+
+/// <summary>
 /// ソース結果サマリ
 /// </summary>
 public record SourceResultSummary(

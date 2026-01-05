@@ -6,7 +6,8 @@ namespace QInfoRanker.Infrastructure.Collectors;
 
 public class YahooNewsJapanCollector : BaseCollector
 {
-    // Yahoo! News Japan RSS feeds by category
+    // Yahoo! News Japan RSS feeds by category (updated 2025)
+    // Note: it-science.xml was split into it.xml and science.xml
     private static readonly Dictionary<string, string> CategoryFeeds = new()
     {
         ["top"] = "https://news.yahoo.co.jp/rss/topics/top-picks.xml",
@@ -15,7 +16,7 @@ public class YahooNewsJapanCollector : BaseCollector
         ["business"] = "https://news.yahoo.co.jp/rss/topics/business.xml",
         ["entertainment"] = "https://news.yahoo.co.jp/rss/topics/entertainment.xml",
         ["sports"] = "https://news.yahoo.co.jp/rss/topics/sports.xml",
-        ["it"] = "https://news.yahoo.co.jp/rss/topics/it-science.xml",
+        ["it"] = "https://news.yahoo.co.jp/rss/topics/it.xml",
         ["science"] = "https://news.yahoo.co.jp/rss/topics/science.xml",
         ["local"] = "https://news.yahoo.co.jp/rss/topics/local.xml"
     };
@@ -85,13 +86,14 @@ public class YahooNewsJapanCollector : BaseCollector
             }
         }
 
-        // Default: use top, domestic, business, it-science
+        // Default: use top, domestic, business, it, science
         return
         [
             CategoryFeeds["top"],
             CategoryFeeds["domestic"],
             CategoryFeeds["business"],
-            CategoryFeeds["it"]
+            CategoryFeeds["it"],
+            CategoryFeeds["science"]
         ];
     }
 

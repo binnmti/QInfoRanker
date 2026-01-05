@@ -59,7 +59,8 @@ public class NoteCollector : BaseCollector
     {
         var articles = new List<Article>();
 
-        var apiUrl = $"https://note.com/api/v2/searches?q={Uri.EscapeDataString(keyword)}&size=50&start=0&sort=new";
+        // v3 API endpoint (v2 was deprecated)
+        var apiUrl = $"https://note.com/api/v3/searches?context=note&q={Uri.EscapeDataString(keyword)}&size=50&sort=new";
         var jsonContent = await GetStringAsync(apiUrl, cancellationToken);
 
         if (string.IsNullOrEmpty(jsonContent))
@@ -70,20 +71,23 @@ public class NoteCollector : BaseCollector
             using var doc = JsonDocument.Parse(jsonContent);
             var root = doc.RootElement;
 
+            // v3 API structure: data.notes.contents[]
             if (!root.TryGetProperty("data", out var data) ||
-                !data.TryGetProperty("notes", out var notes))
+                !data.TryGetProperty("notes", out var notes) ||
+                !notes.TryGetProperty("contents", out var contents))
             {
                 return articles;
             }
 
-            foreach (var note in notes.EnumerateArray())
+            foreach (var note in contents.EnumerateArray())
             {
                 var id = note.TryGetProperty("id", out var idProp) ? idProp.GetInt64().ToString() : null;
                 var key = note.TryGetProperty("key", out var keyProp) ? keyProp.GetString() : null;
                 var name = note.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
                 var body = note.TryGetProperty("body", out var bodyProp) ? bodyProp.GetString() : null;
-                var likeCount = note.TryGetProperty("likeCount", out var likeProp) ? likeProp.GetInt32() : 0;
-                var publishAt = note.TryGetProperty("publishAt", out var pubProp) ? pubProp.GetString() : null;
+                // v3 API uses snake_case
+                var likeCount = note.TryGetProperty("like_count", out var likeProp) ? likeProp.GetInt32() : 0;
+                var publishAt = note.TryGetProperty("publish_at", out var pubProp) ? pubProp.GetString() : null;
 
                 // Get user info for URL
                 var userUrlname = "";

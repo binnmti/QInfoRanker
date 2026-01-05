@@ -81,8 +81,23 @@ public class KeywordService : IKeywordService
             _logger.LogInformation("Auto-generated English aliases for '{Term}': {Aliases}", term, keyword.Aliases);
         }
 
+        // 既存のソースを取得して重複チェック
+        var existingSourceNames = await _context.Sources
+            .Where(s => s.KeywordId == keyword.Id && !s.IsTemplate)
+            .Select(s => s.Name)
+            .ToListAsync(cancellationToken);
+        var existingNameSet = new HashSet<string>(existingSourceNames, StringComparer.OrdinalIgnoreCase);
+
+        var addedCount = 0;
         foreach (var template in recommendationResult.RecommendedSources)
         {
+            // 同じ名前のソースが既に存在する場合はスキップ
+            if (existingNameSet.Contains(template.Name))
+            {
+                _logger.LogDebug("Skipping duplicate source '{Name}' for keyword '{Term}'", template.Name, term);
+                continue;
+            }
+
             var source = new Source
             {
                 KeywordId = keyword.Id,
@@ -99,10 +114,17 @@ public class KeywordService : IKeywordService
                 RecommendationReason = template.RecommendationReason // AI推薦理由を保存
             };
             _context.Sources.Add(source);
+            existingNameSet.Add(template.Name); // 追加したソースも記録
+            addedCount++;
         }
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Created keyword '{Term}' with {Count} recommended sources", term, recommendationResult.RecommendedSources.Count);
+        if (addedCount > 0)
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("Created keyword '{Term}' with {Added}/{Total} sources (skipped {Skipped} duplicates)",
+            term, addedCount, recommendationResult.RecommendedSources.Count, recommendationResult.RecommendedSources.Count - addedCount);
 
         return keyword;
     }

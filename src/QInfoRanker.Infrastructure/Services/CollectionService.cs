@@ -123,7 +123,22 @@ public class CollectionService : ICollectionService
                     try
                     {
                         var articles = await CollectFromSourceSafeAsync(source, searchTerm, since, debugMode, debugArticleLimit, cancellationToken);
-                        sourceArticles.AddRange(articles);
+                        var articleList = articles.ToList();
+                        sourceArticles.AddRange(articleList);
+
+                        // 取得した記事を即座に通知（画面に動きを出す）
+                        if (articleList.Any())
+                        {
+                            var fetchedInfos = articleList.Select(a => new FetchedArticleInfo(
+                                a.Title,
+                                a.Url,
+                                a.PublishedAt,
+                                a.NativeScore
+                            )).ToList();
+
+                            await _progressNotifier.NotifyArticlesFetchedAsync(new ArticlesFetchedEvent(
+                                keywordId, source.Name, fetchedInfos));
+                        }
 
                         // デバッグモードで上限に達したら終了
                         if (debugMode && sourceArticles.Count >= debugArticleLimit)
@@ -174,7 +189,10 @@ public class CollectionService : ICollectionService
                     // ソース単位でスコアリング
                     try
                     {
-                        await ScoreArticlesForSourceAsync(savedArticles, source, searchTerms, cancellationToken);
+                        await ScoreArticlesForSourceAsync(
+                            savedArticles, source, searchTerms,
+                            keywordId, keyword.Term, sourceIndex, activeSources.Count,
+                            allSavedArticles.Count, cancellationToken);
                         scoredCount = savedArticles.Count(a => a.LlmScore.HasValue);
 
                         var avgScore = savedArticles.Where(a => a.FinalScore > 0).Select(a => a.FinalScore).DefaultIfEmpty(0).Average();
@@ -282,35 +300,143 @@ public class CollectionService : ICollectionService
         List<Article> articles,
         Source source,
         List<string> searchTerms,
+        int keywordId,
+        string keywordTerm,
+        int sourceIndex,
+        int totalSources,
+        int totalArticlesSoFar,
         CancellationToken cancellationToken)
     {
         if (!articles.Any()) return;
 
         _logger.LogInformation("Scoring {Count} articles from {Source}", articles.Count, source.Name);
 
-        // 2段階スコアリング実行
+        // 進捗コールバック - スコアリング中のバッチ進捗を通知
+        var scoredSoFar = 0;
+        var progress = new Progress<ScoringProgress>(async p =>
+        {
+            string message;
+            if (p.Stage == ScoringStage.RelevanceEvaluation)
+            {
+                // フィルタリング段階: 関連ありと判定された記事数を表示
+                message = $"{source.Name}: フィルタ {p.CurrentBatch}/{p.TotalBatches} (通過: {p.RelevantCount}件)";
+            }
+            else
+            {
+                // 品質評価段階: スコアリング進捗を表示
+                scoredSoFar = p.ProcessedArticles;
+                message = $"{source.Name}: スコアリング {p.CurrentBatch}/{p.TotalBatches} ({p.ProcessedArticles}/{p.TotalArticles}件)";
+            }
+
+            await _progressNotifier.NotifyProgressAsync(new CollectionProgressEvent(
+                keywordId, keywordTerm,
+                p.Stage == ScoringStage.RelevanceEvaluation ? CollectionPhase.CollectingSource : CollectionPhase.ScoringSource,
+                source.Name, sourceIndex, totalSources,
+                totalArticlesSoFar + articles.Count,
+                totalArticlesSoFar + scoredSoFar,  // 品質評価完了分のみカウント
+                message
+            ));
+        });
+
+        // フィルタリング完了コールバック（Stage 1完了時に即座に採点待ちリストに追加）
+        Action<BatchRelevanceResult, IEnumerable<Article>> onRelevanceComplete = async (relevanceResult, relevantArticles) =>
+        {
+            var passedFilterInfos = relevanceResult.Evaluations
+                .Where(e => e.IsRelevant)
+                .Select(e =>
+                {
+                    var article = relevantArticles.FirstOrDefault(a => a.Id == e.ArticleId);
+                    if (article == null) return null;
+                    return new PassedFilterArticleInfo(
+                        article.Id,
+                        article.Title,
+                        article.Url,
+                        article.PublishedAt,
+                        article.NativeScore,
+                        e.RelevanceScore
+                    );
+                })
+                .Where(p => p != null)
+                .Cast<PassedFilterArticleInfo>()
+                .ToList();
+
+            if (passedFilterInfos.Any())
+            {
+                await _progressNotifier.NotifyArticlesPassedFilterAsync(new ArticlesPassedFilterEvent(
+                    keywordId, source.Name, passedFilterInfos));
+            }
+        };
+
+        // 品質評価完了コールバック（各バッチ完了時に即座にDB保存＆採点待ちリストから削除）
+        Action<IEnumerable<Article>, IEnumerable<ArticleQuality>> onQualityBatchComplete = async (scoredArticles, qualityResults) =>
+        {
+            var scoredPreviews = new List<ScoredArticlePreview>();
+
+            foreach (var article in scoredArticles)
+            {
+                // 最終スコアを即座に計算
+                if (article.LlmScore.HasValue)
+                {
+                    article.FinalScore = _scoringService.CalculateFinalScore(article, source);
+                }
+                else
+                {
+                    // フォールバック計算（シンプル100点満点: 品質80点 + 関連20点）
+                    var relevanceScore = (article.RelevanceScore ?? 5) * 2;
+                    var qualityScore = 40; // LLMスコアなしの場合は中央値
+                    article.FinalScore = qualityScore + relevanceScore;
+                }
+
+                // 即座にDB保存（メイン一覧にすぐ反映されるように）
+                await _articleService.UpdateAsync(article, cancellationToken);
+
+                scoredPreviews.Add(new ScoredArticlePreview
+                {
+                    ArticleId = article.Id,
+                    Title = article.Title,
+                    Url = article.Url,
+                    SourceName = source.Name,
+                    PublishedAt = article.PublishedAt,
+                    NativeScore = article.NativeScore,
+                    RelevanceScore = article.RelevanceScore ?? 0,
+                    LlmScore = article.LlmScore ?? 0,
+                    FinalScore = article.FinalScore,
+                    SummaryJa = article.SummaryJa,
+                    ScoredAt = DateTime.UtcNow
+                });
+            }
+
+            await _progressNotifier.NotifyArticlesQualityScoredAsync(keywordId, scoredPreviews);
+        };
+
+        // 2段階スコアリング実行（コールバック付き）
         var result = await _scoringService.EvaluateTwoStageAsync(
-            articles, searchTerms, source.HasServerSideFiltering, cancellationToken);
+            articles, searchTerms, source.HasServerSideFiltering, progress,
+            onRelevanceComplete, onQualityBatchComplete, cancellationToken);
 
         _logger.LogInformation(
             "Scoring completed for {Source}: {Relevant}/{Total} relevant, API calls: {ApiCalls}",
             source.Name, result.RelevanceResult.RelevantCount, articles.Count, result.TotalApiCalls);
 
-        // 最終スコア計算と保存
-        foreach (var article in articles)
+        // トークン使用量を通知
+        await _progressNotifier.NotifyTokenUsageAsync(keywordId, result.TotalInputTokens, result.TotalOutputTokens);
+
+        // FinalScoreが未計算の記事を処理
+        // - LlmScoreがない記事（フィルタで除外された記事）: フォールバック計算
+        // - LlmScoreがあるがFinalScoreが0の記事（LLMレスポンス漏れでコールバック未処理）: 正式計算
+        foreach (var article in articles.Where(a => a.LlmScore == null || a.FinalScore == 0))
         {
-            if (article.LlmScore != null)
+            if (article.LlmScore.HasValue)
             {
+                // LlmScoreがある場合は正式な計算（コールバックで漏れた記事）
                 article.FinalScore = _scoringService.CalculateFinalScore(article, source);
             }
             else
             {
-                // LLMスコアがない場合のフォールバック計算
-                var relevanceScore = article.RelevanceScore ?? 5;
-                var normalizedNative = source.HasNativeScore && article.NativeScore.HasValue
-                    ? _scoringService.NormalizeNativeScore(article.NativeScore, source.Name)
-                    : 0;
-                article.FinalScore = (relevanceScore * 5) + (normalizedNative * 0.3) + (source.AuthorityWeight * 10);
+                // LlmScoreがない場合はフォールバック計算（シンプル100点満点: 品質80点 + 関連20点）
+                var relevanceScore = (article.RelevanceScore ?? 5) * 2;
+                var qualityScore = 40; // LLMスコアなしの場合は中央値
+                article.FinalScore = qualityScore + relevanceScore;
             }
 
             await _articleService.UpdateAsync(article, cancellationToken);

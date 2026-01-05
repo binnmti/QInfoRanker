@@ -114,31 +114,19 @@ public class ScoringService : IScoringService
 
     public double CalculateFinalScore(Article article, Source source)
     {
-        double baseScore;
+        // シンプルな100点満点スコアリング
+        // 品質評価: 4項目 × 20点 = 80点満点
+        // 関連性: 10点 × 2 = 20点満点
+        // 合計: 100点満点
 
-        if (source.HasNativeScore && article.NativeScore.HasValue)
-        {
-            // Hybrid scoring: combine native and LLM scores
-            var normalizedNative = NormalizeNativeScore(article.NativeScore, source.Name);
-            var llmScore = article.LlmScore ?? 0;
+        var qualityScore = (article.TechnicalScore ?? 0) +
+                          (article.NoveltyScore ?? 0) +
+                          (article.ImpactScore ?? 0) +
+                          (article.QualityScore ?? 0);
 
-            baseScore = (normalizedNative * _scoringOptions.EffectiveNativeScoreWeight) +
-                        (llmScore * _scoringOptions.EffectiveLlmScoreWeight);
-        }
-        else
-        {
-            // LLM-only scoring with authority bonus
-            var llmScore = article.LlmScore ?? 0;
-            baseScore = llmScore * _scoringOptions.LlmOnlyWeight;
-        }
+        var relevanceScore = (article.RelevanceScore ?? 5) * 2;
 
-        // Add authority bonus
-        baseScore += source.AuthorityWeight * _scoringOptions.AuthorityBonusMultiplier;
-
-        // Apply relevance multiplier - 関連性スコアを最終スコアに大きく反映
-        // RelevanceScore 10 → 100%, 5 → 50%, 0 → 0%
-        var relevanceMultiplier = (article.RelevanceScore ?? 10.0) / 10.0;
-        var finalScore = baseScore * relevanceMultiplier;
+        var finalScore = qualityScore + relevanceScore;
 
         return Math.Min(100, Math.Max(0, finalScore));
     }
@@ -192,7 +180,7 @@ public class ScoringService : IScoringService
     private string BuildScoringPrompt(Article article, bool includeContent)
     {
         var prompt = $"""
-            Evaluate the following article and provide scores (0-25 each) for:
+            Evaluate the following article and provide scores (0-20 each) for:
             - technical: Technical importance and depth
             - novelty: Originality and newness of the content
             - impact: Practical impact and usefulness
@@ -218,7 +206,7 @@ public class ScoringService : IScoringService
 
             Respond with JSON only:
             {"technical": X, "novelty": X, "impact": X, "quality": X, "total": X}
-            Where total is the sum of all scores (0-100).
+            Where total is the sum of all scores (0-80).
             """;
 
         return prompt;
@@ -261,10 +249,32 @@ public class ScoringService : IScoringService
 
     #region 2段階バッチスコアリング
 
+    public Task<TwoStageResult> EvaluateTwoStageAsync(
+        IEnumerable<Article> articles,
+        IEnumerable<string> keywords,
+        bool skipRelevanceFilter = false,
+        CancellationToken cancellationToken = default)
+    {
+        return EvaluateTwoStageAsync(articles, keywords, skipRelevanceFilter, null, cancellationToken);
+    }
+
+    public Task<TwoStageResult> EvaluateTwoStageAsync(
+        IEnumerable<Article> articles,
+        IEnumerable<string> keywords,
+        bool skipRelevanceFilter,
+        IProgress<ScoringProgress>? progress,
+        CancellationToken cancellationToken = default)
+    {
+        return EvaluateTwoStageAsync(articles, keywords, skipRelevanceFilter, progress, null, null, cancellationToken);
+    }
+
     public async Task<TwoStageResult> EvaluateTwoStageAsync(
         IEnumerable<Article> articles,
         IEnumerable<string> keywords,
-        bool skipRelevanceFilter = false, // 後方互換性のため残すが、常にStage 1を実行
+        bool skipRelevanceFilter,
+        IProgress<ScoringProgress>? progress,
+        Action<BatchRelevanceResult, IEnumerable<Article>>? onRelevanceComplete,
+        Action<IEnumerable<Article>, IEnumerable<ArticleQuality>>? onQualityBatchComplete,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -290,7 +300,7 @@ public class ScoringService : IScoringService
 
         // Stage 1: 常に関連性評価を実行（内容がキーワードと合っているかを確認）
         _logger.LogInformation("Stage 1: {Count}件の記事の関連性を評価中...", articleList.Count);
-        result.RelevanceResult = await EvaluateRelevanceBatchAsync(articleList, keywordList, cancellationToken);
+        result.RelevanceResult = await EvaluateRelevanceBatchAsync(articleList, keywordList, progress, cancellationToken);
 
         // 記事にRelevanceScoreを反映
         foreach (var eval in result.RelevanceResult.Evaluations)
@@ -328,9 +338,15 @@ public class ScoringService : IScoringService
         _logger.LogInformation("Stage 2: {Relevant}件の関連記事を品質評価中... ({Filtered}件を除外)",
             relevantArticles.Count, result.RelevanceResult.FilteredCount);
 
+        // フィルタリング完了コールバック（Stage 1終了、Stage 2開始前）
         if (relevantArticles.Any())
         {
-            result.QualityResult = await EvaluateQualityBatchAsync(relevantArticles, keywordList, cancellationToken);
+            onRelevanceComplete?.Invoke(result.RelevanceResult, relevantArticles);
+        }
+
+        if (relevantArticles.Any())
+        {
+            result.QualityResult = await EvaluateQualityBatchAsync(relevantArticles, keywordList, progress, onQualityBatchComplete, cancellationToken);
 
             // 記事に品質スコアを反映
             var evaluatedArticleIds = new HashSet<int>();
@@ -370,9 +386,17 @@ public class ScoringService : IScoringService
         result.TotalApiCalls = result.RelevanceResult.ApiCallCount + result.QualityResult.ApiCallCount;
         result.TotalDuration = stopwatch.Elapsed;
 
+        // トークン使用量を集約
+        result.TotalInputTokens = result.RelevanceResult.InputTokens + result.QualityResult.InputTokens;
+        result.TotalOutputTokens = result.RelevanceResult.OutputTokens + result.QualityResult.OutputTokens;
+
         _logger.LogInformation(
-            "2段階評価完了: {Total}件中{Relevant}件が関連あり, API呼び出し{ApiCalls}回, 処理時間{Duration}ms",
-            articleList.Count, relevantArticles.Count, result.TotalApiCalls, result.TotalDuration.TotalMilliseconds);
+            "2段階評価完了: {Total}件中{Relevant}件が関連あり, API呼び出し{ApiCalls}回, 処理時間{Duration:F1}s",
+            articleList.Count, relevantArticles.Count, result.TotalApiCalls, result.TotalDuration.TotalSeconds);
+
+        _logger.LogInformation(
+            "トークン使用量: 入力={InputTokens:N0}, 出力={OutputTokens:N0}, 合計={TotalTokens:N0}, 推定コスト=${Cost:F4} USD",
+            result.TotalInputTokens, result.TotalOutputTokens, result.TotalTokens, result.EstimatedCostUsd);
 
         return result;
     }
@@ -380,6 +404,7 @@ public class ScoringService : IScoringService
     private async Task<BatchRelevanceResult> EvaluateRelevanceBatchAsync(
         List<Article> articles,
         List<string> keywords,
+        IProgress<ScoringProgress>? progress,
         CancellationToken cancellationToken)
     {
         var result = new BatchRelevanceResult { TotalProcessed = articles.Count };
@@ -390,13 +415,41 @@ public class ScoringService : IScoringService
             .Select(g => g.Select(x => x.article).ToList())
             .ToList();
 
-        foreach (var batch in batches)
+        var totalBatches = batches.Count;
+        var processedArticles = 0;
+        var relevantSoFar = 0;
+
+        for (int i = 0; i < batches.Count; i++)
         {
+            var batch = batches[i];
             result.ApiCallCount++;
+
+            // 進捗通知（バッチ処理前）
+            progress?.Report(new ScoringProgress(
+                ScoringStage.RelevanceEvaluation,
+                i + 1, totalBatches,
+                processedArticles, articles.Count,
+                relevantSoFar,
+                $"フィルタリング中..."
+            ));
+
             try
             {
-                var batchResult = await ProcessRelevanceBatchAsync(batch, keywords, cancellationToken);
-                result.Evaluations.AddRange(batchResult);
+                var (evaluations, inputTokens, outputTokens) = await ProcessRelevanceBatchAsync(batch, keywords, cancellationToken);
+                result.Evaluations.AddRange(evaluations);
+                result.InputTokens += inputTokens;
+                result.OutputTokens += outputTokens;
+                processedArticles += batch.Count;
+                relevantSoFar = result.Evaluations.Count(e => e.IsRelevant);
+
+                // 進捗通知（バッチ処理後 - 結果を含む）
+                progress?.Report(new ScoringProgress(
+                    ScoringStage.RelevanceEvaluation,
+                    i + 1, totalBatches,
+                    processedArticles, articles.Count,
+                    relevantSoFar,
+                    $"フィルタリング完了 ({processedArticles}件中 {relevantSoFar}件が関連あり)"
+                ));
 
                 if (_batchOptions.DelayBetweenBatchesMs > 0)
                     await Task.Delay(_batchOptions.DelayBetweenBatchesMs, cancellationToken);
@@ -417,6 +470,8 @@ public class ScoringService : IScoringService
                         });
                     }
                 }
+                processedArticles += batch.Count;
+                relevantSoFar = result.Evaluations.Count(e => e.IsRelevant);
             }
         }
 
@@ -425,7 +480,7 @@ public class ScoringService : IScoringService
         return result;
     }
 
-    private async Task<List<ArticleRelevance>> ProcessRelevanceBatchAsync(
+    private async Task<(List<ArticleRelevance> Evaluations, int InputTokens, int OutputTokens)> ProcessRelevanceBatchAsync(
         List<Article> batch,
         List<string> keywords,
         CancellationToken cancellationToken)
@@ -444,27 +499,28 @@ public class ScoringService : IScoringService
         var prompt = $$"""
             キーワード「{{keywordsStr}}」に対する各記事の関連性を0-10で評価してください。
 
-            【重要】キーワードが記事内に単に「含まれている」だけでは高評価にしないでください。
-            記事の主題・内容がキーワードのトピックについて実際に書かれているかを判断してください。
+            【重要】
+            - サマリー（summary）の内容を最も重視して判断してください
+            - タイトルがクイズ形式やキャッチーな表現でも、サマリーがキーワードについて実質的に扱っていれば高評価にしてください
+            - キーワードが記事内に単に「含まれている」だけでは高評価にしないでください
 
             評価基準:
-            - 9-10: 記事の主題がキーワードのトピックそのもの（技術解説、入門記事、実装例など）
-            - 7-8: キーワードのトピックについて実質的・技術的に扱っている
+            - 9-10: サマリーの主題がキーワードのトピックそのもの（技術解説、入門記事、実装例など）
+            - 7-8: サマリーがキーワードのトピックについて実質的・技術的に扱っている
             - 5-6: キーワードのトピックに部分的に関連（関連技術、応用例など）
-            - 3-4: キーワードに触れているが主題は別のトピック
+            - 3-4: サマリーでキーワードに触れているが主題は別のトピック
             - 0-2: キーワードと無関係、または単に言葉として出てくるだけ
 
             例（キーワードが「量子コンピュータ」の場合）:
-            - 「量子コンピュータの仕組み解説」→ 9-10点
-            - 「量子アルゴリズムの実装」→ 8-9点
-            - 「AIと量子コンピュータの未来」→ 5-6点（量子は副題）
-            - 「ゲームの乱数生成について（量子の話を1行だけ言及）」→ 1-2点
+            - タイトル「クイズ：量子コンピュータは何台？」＋サマリー「量子コンピュータの技術動向と日本の研究状況を解説...」→ 8-9点（サマリーが技術的）
+            - タイトル「量子コンピュータの仕組み解説」＋サマリー「量子ビットの原理から...」→ 9-10点
+            - タイトル「AIの未来」＋サマリー「...量子コンピュータについても1文だけ言及...」→ 2-3点（サマリーで軽く触れるだけ）
 
             記事一覧:
             {{articlesJsonStr}}
 
             JSON形式で回答（理由は日本語で）:
-            {"evaluations": [{"id": 1, "relevance": 8, "reason": "直接的なチュートリアル"}, ...]}
+            {"evaluations": [{"id": 1, "relevance": 8, "reason": "サマリーが技術的に詳しく扱っている"}, ...]}
             """;
 
         var messages = new List<ChatMessage>
@@ -481,16 +537,21 @@ public class ScoringService : IScoringService
 
         var response = await _chatClient!.CompleteChatAsync(messages, options, cancellationToken);
         var content = response.Value.Content[0].Text;
+        var usage = response.Value.Usage;
 
-        return ParseRelevanceResponse(content, batch);
+        var evaluations = ParseRelevanceResponse(content, batch);
+        return (evaluations, usage.InputTokenCount, usage.OutputTokenCount);
     }
 
     private async Task<BatchQualityResult> EvaluateQualityBatchAsync(
         List<Article> articles,
         List<string> keywords,
+        IProgress<ScoringProgress>? progress,
+        Action<IEnumerable<Article>, IEnumerable<ArticleQuality>>? onQualityBatchComplete,
         CancellationToken cancellationToken)
     {
         var result = new BatchQualityResult { TotalProcessed = articles.Count };
+        var evaluatedArticleIds = new HashSet<int>();
 
         var batches = articles
             .Select((article, index) => new { article, index })
@@ -498,13 +559,53 @@ public class ScoringService : IScoringService
             .Select(g => g.Select(x => x.article).ToList())
             .ToList();
 
-        foreach (var batch in batches)
+        var totalBatches = batches.Count;
+        var processedArticles = 0;
+
+        for (int i = 0; i < batches.Count; i++)
         {
+            var batch = batches[i];
             result.ApiCallCount++;
+
+            // 進捗通知
+            progress?.Report(new ScoringProgress(
+                ScoringStage.QualityEvaluation,
+                i + 1, totalBatches,
+                processedArticles, articles.Count,
+                articles.Count,  // RelevantCount = 品質評価対象の記事数
+                $"スコアリング中 ({i + 1}/{totalBatches})"
+            ));
+
             try
             {
-                var batchResult = await ProcessQualityBatchAsync(batch, keywords, cancellationToken);
-                result.Evaluations.AddRange(batchResult);
+                var (evaluations, inputTokens, outputTokens) = await ProcessQualityBatchAsync(batch, keywords, cancellationToken);
+                result.Evaluations.AddRange(evaluations);
+                result.InputTokens += inputTokens;
+                result.OutputTokens += outputTokens;
+                processedArticles += batch.Count;
+
+                // 記事に品質スコアを即座に反映（コールバック前に必要）
+                foreach (var eval in evaluations)
+                {
+                    var article = batch.FirstOrDefault(a => a.Id == eval.ArticleId);
+                    if (article != null)
+                    {
+                        article.TechnicalScore = eval.Technical;
+                        article.NoveltyScore = eval.Novelty;
+                        article.ImpactScore = eval.Impact;
+                        article.QualityScore = eval.Quality;
+                        article.LlmScore = eval.Total;
+                        article.SummaryJa = eval.SummaryJa;
+                        evaluatedArticleIds.Add(article.Id);
+                    }
+                }
+
+                // 品質評価完了コールバック（このバッチで評価された記事と評価結果を通知）
+                if (evaluations.Any())
+                {
+                    var evaluatedArticles = batch.Where(a => evaluations.Any(r => r.ArticleId == a.Id)).ToList();
+                    onQualityBatchComplete?.Invoke(evaluatedArticles, evaluations);
+                }
 
                 if (_batchOptions.DelayBetweenBatchesMs > 0)
                     await Task.Delay(_batchOptions.DelayBetweenBatchesMs, cancellationToken);
@@ -513,13 +614,76 @@ public class ScoringService : IScoringService
             {
                 _logger.LogError(ex, "品質バッチ評価に失敗。");
                 // 品質評価失敗時はスコアなしのままにする
+                processedArticles += batch.Count;
+
+                // 失敗した記事も「完了」として通知（採点待ちリストから削除するため）
+                onQualityBatchComplete?.Invoke(batch, Enumerable.Empty<ArticleQuality>());
             }
+        }
+
+        // リトライ: 評価が漏れた記事（SummaryJaが空）を1件ずつ再評価
+        var missedArticles = articles.Where(a => !evaluatedArticleIds.Contains(a.Id) && string.IsNullOrEmpty(a.SummaryJa)).ToList();
+        if (missedArticles.Any() && _batchOptions.MaxRetries > 0)
+        {
+            _logger.LogInformation("{Count}件の記事がバッチ評価で漏れました。リトライします...", missedArticles.Count);
+
+            progress?.Report(new ScoringProgress(
+                ScoringStage.QualityEvaluation,
+                totalBatches, totalBatches,
+                processedArticles, articles.Count,
+                articles.Count,
+                $"漏れた記事をリトライ中 ({missedArticles.Count}件)"
+            ));
+
+            foreach (var article in missedArticles)
+            {
+                result.ApiCallCount++;
+
+                try
+                {
+                    // 1件ずつ評価（確実に成功させるため）
+                    var (evaluations, inputTokens, outputTokens) = await ProcessQualityBatchAsync(
+                        new List<Article> { article }, keywords, cancellationToken);
+
+                    result.InputTokens += inputTokens;
+                    result.OutputTokens += outputTokens;
+
+                    if (evaluations.Any())
+                    {
+                        var eval = evaluations.First();
+                        result.Evaluations.Add(eval);
+
+                        article.TechnicalScore = eval.Technical;
+                        article.NoveltyScore = eval.Novelty;
+                        article.ImpactScore = eval.Impact;
+                        article.QualityScore = eval.Quality;
+                        article.LlmScore = eval.Total;
+                        article.SummaryJa = eval.SummaryJa;
+                        evaluatedArticleIds.Add(article.Id);
+
+                        // リトライ成功時もコールバック
+                        onQualityBatchComplete?.Invoke(new[] { article }, evaluations);
+
+                        _logger.LogDebug("リトライ成功: {Title}", article.Title);
+                    }
+
+                    if (_batchOptions.DelayBetweenBatchesMs > 0)
+                        await Task.Delay(_batchOptions.DelayBetweenBatchesMs, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "リトライも失敗: {Title}", article.Title);
+                }
+            }
+
+            var retriedCount = missedArticles.Count(a => evaluatedArticleIds.Contains(a.Id));
+            _logger.LogInformation("リトライ完了: {Success}/{Total}件が成功", retriedCount, missedArticles.Count);
         }
 
         return result;
     }
 
-    private async Task<List<ArticleQuality>> ProcessQualityBatchAsync(
+    private async Task<(List<ArticleQuality> Evaluations, int InputTokens, int OutputTokens)> ProcessQualityBatchAsync(
         List<Article> batch,
         List<string> keywords,
         CancellationToken cancellationToken)
@@ -540,7 +704,7 @@ public class ScoringService : IScoringService
         var prompt = $$"""
             以下の技術記事（キーワード: {{keywordsStr}}）を評価し、日本語で詳細に要約してください。
 
-            評価項目（各0-25点）:
+            評価項目（各0-20点、合計80点満点）:
             - technical: 技術的深さと重要性
             - novelty: 新規性・独自性
             - impact: 実用的な影響度・有用性
@@ -554,11 +718,11 @@ public class ScoringService : IScoringService
               "evaluations": [
                 {
                   "id": 1,
-                  "technical": 20,
-                  "novelty": 15,
-                  "impact": 18,
-                  "quality": 17,
-                  "total": 70,
+                  "technical": 16,
+                  "novelty": 12,
+                  "impact": 14,
+                  "quality": 14,
+                  "total": 56,
                   "summary_ja": "詳細な要約をここに記載..."
                 }
               ]
@@ -586,8 +750,10 @@ public class ScoringService : IScoringService
 
         var response = await _chatClient!.CompleteChatAsync(messages, options, cancellationToken);
         var content = response.Value.Content[0].Text;
+        var usage = response.Value.Usage;
 
-        return ParseQualityResponse(content, batch);
+        var evaluations = ParseQualityResponse(content, batch);
+        return (evaluations, usage.InputTokenCount, usage.OutputTokenCount);
     }
 
     private List<ArticleRelevance> ParseRelevanceResponse(string content, List<Article> batch)

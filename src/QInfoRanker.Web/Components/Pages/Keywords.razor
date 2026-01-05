@@ -28,16 +28,6 @@
     <small class="text-muted">AIがキーワードに最適なソースを自動選定します</small>
 </div>
 
-@* デバッグモードチェックボックス *@
-<div class="mb-3">
-    <div class="form-check">
-        <input type="checkbox" class="form-check-input" id="debugMode" @bind="debugMode" />
-        <label class="form-check-label" for="debugMode">
-            デバッグモード（各ソース3件のみ収集 - UI確認用）
-        </label>
-    </div>
-</div>
-
 @if (!string.IsNullOrEmpty(statusMessage))
 {
     <div class="alert @(isError ? "alert-danger" : "alert-info") alert-dismissible fade show" role="alert">
@@ -56,6 +46,16 @@ else if (keywords == null || !keywords.Any())
 }
 else
 {
+    @* デバッグモードチェックボックス（キーワードがある場合のみ表示） *@
+    <div class="mb-3">
+        <div class="form-check">
+            <input type="checkbox" class="form-check-input" id="debugMode" @bind="debugMode" />
+            <label class="form-check-label" for="debugMode">
+                デバッグモード（各ソース3件のみ収集 - UI確認用）
+            </label>
+        </div>
+    </div>
+
     <table class="table table-striped">
         <thead>
             <tr>
