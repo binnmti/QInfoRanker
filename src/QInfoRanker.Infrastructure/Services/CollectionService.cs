@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using QInfoRanker.Core.Entities;
 using QInfoRanker.Core.Events;
 using QInfoRanker.Core.Exceptions;
 using QInfoRanker.Core.Interfaces.Collectors;
 using QInfoRanker.Core.Interfaces.Services;
+using QInfoRanker.Infrastructure.Scoring;
 
 namespace QInfoRanker.Infrastructure.Services;
 
@@ -17,6 +19,7 @@ public class CollectionService : ICollectionService
     private readonly IWeeklySummaryService _weeklySummaryService;
     private readonly IEnumerable<ICollector> _collectors;
     private readonly ICollectionProgressNotifier _progressNotifier;
+    private readonly EnsembleScoringOptions _ensembleOptions;
     private readonly ILogger<CollectionService> _logger;
 
     public CollectionService(
@@ -27,6 +30,7 @@ public class CollectionService : ICollectionService
         IWeeklySummaryService weeklySummaryService,
         IEnumerable<ICollector> collectors,
         ICollectionProgressNotifier progressNotifier,
+        IOptions<EnsembleScoringOptions> ensembleOptions,
         ILogger<CollectionService> logger)
     {
         _keywordService = keywordService;
@@ -36,6 +40,7 @@ public class CollectionService : ICollectionService
         _weeklySummaryService = weeklySummaryService;
         _collectors = collectors;
         _progressNotifier = progressNotifier;
+        _ensembleOptions = ensembleOptions.Value;
         _logger = logger;
     }
 
@@ -409,17 +414,114 @@ public class CollectionService : ICollectionService
             await _progressNotifier.NotifyArticlesQualityScoredAsync(keywordId, scoredPreviews);
         };
 
-        // 2段階スコアリング実行（コールバック付き）
-        var result = await _scoringService.EvaluateTwoStageAsync(
-            articles, searchTerms, source.HasServerSideFiltering, progress,
-            onRelevanceComplete, onQualityBatchComplete, cancellationToken);
+        // スコアリング実行（アンサンブル有効/無効で分岐）
+        int totalApiCalls;
+        int relevantCount;
+        int totalInputTokens;
+        int totalOutputTokens;
 
-        _logger.LogInformation(
-            "Scoring completed for {Source}: {Relevant}/{Total} relevant, API calls: {ApiCalls}",
-            source.Name, result.RelevanceResult.RelevantCount, articles.Count, result.TotalApiCalls);
+        if (_ensembleOptions.EnableEnsemble)
+        {
+            // 3段階アンサンブル評価
+            _logger.LogInformation("Using ensemble evaluation with {JudgeCount} judges",
+                _ensembleOptions.Judges.Count(j => j.IsEnabled));
+
+            var threeStageResult = await _scoringService.EvaluateThreeStageAsync(
+                articles, searchTerms, source.HasServerSideFiltering, progress, cancellationToken);
+
+            totalApiCalls = threeStageResult.TotalApiCalls;
+            relevantCount = threeStageResult.RelevanceResult.RelevantCount;
+            totalInputTokens = threeStageResult.TotalInputTokens;
+            totalOutputTokens = threeStageResult.TotalOutputTokens;
+
+            // Stage 1完了通知（関連性フィルタを通過した記事）
+            var passedFilterInfos = threeStageResult.RelevanceResult.Evaluations
+                .Where(e => e.IsRelevant)
+                .Select(e =>
+                {
+                    var article = articles.FirstOrDefault(a => a.Id == e.ArticleId);
+                    if (article == null) return null;
+                    return new PassedFilterArticleInfo(
+                        article.Id,
+                        article.Title,
+                        article.Url,
+                        article.PublishedAt,
+                        article.NativeScore,
+                        e.RelevanceScore
+                    );
+                })
+                .Where(p => p != null)
+                .Cast<PassedFilterArticleInfo>()
+                .ToList();
+
+            if (passedFilterInfos.Any())
+            {
+                await _progressNotifier.NotifyArticlesPassedFilterAsync(new ArticlesPassedFilterEvent(
+                    keywordId, source.Name, passedFilterInfos));
+            }
+
+            // アンサンブル結果をArticleに反映（各記事完了時に通知）
+            var scoredPreviews = new List<ScoredArticlePreview>();
+            foreach (var ensembleResult in threeStageResult.EnsembleResults)
+            {
+                var article = articles.FirstOrDefault(a => a.Id == ensembleResult.ArticleId);
+                if (article != null)
+                {
+                    article.TechnicalScore = ensembleResult.FinalTechnical;
+                    article.NoveltyScore = ensembleResult.FinalNovelty;
+                    article.ImpactScore = ensembleResult.FinalImpact;
+                    article.QualityScore = ensembleResult.FinalQuality;
+                    article.LlmScore = ensembleResult.FinalTotal;
+                    article.SummaryJa = ensembleResult.FinalSummaryJa;
+                    article.FinalScore = _scoringService.CalculateFinalScore(article, source);
+                    await _articleService.UpdateAsync(article, cancellationToken);
+
+                    scoredPreviews.Add(new ScoredArticlePreview
+                    {
+                        ArticleId = article.Id,
+                        Title = article.Title,
+                        Url = article.Url,
+                        SourceName = source.Name,
+                        PublishedAt = article.PublishedAt,
+                        NativeScore = article.NativeScore,
+                        RelevanceScore = article.RelevanceScore ?? 0,
+                        LlmScore = article.LlmScore ?? 0,
+                        FinalScore = article.FinalScore,
+                        SummaryJa = article.SummaryJa,
+                        ScoredAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            // Stage 2+3完了通知
+            if (scoredPreviews.Any())
+            {
+                await _progressNotifier.NotifyArticlesQualityScoredAsync(keywordId, scoredPreviews);
+            }
+
+            _logger.LogInformation(
+                "Ensemble scoring completed for {Source}: {Relevant}/{Total} relevant, API calls: {ApiCalls}, MetaJudge skipped: {Skipped}",
+                source.Name, relevantCount, articles.Count, totalApiCalls, threeStageResult.MetaJudgeSkippedCount);
+        }
+        else
+        {
+            // 従来の2段階評価（コールバック付き）
+            var result = await _scoringService.EvaluateTwoStageAsync(
+                articles, searchTerms, source.HasServerSideFiltering, progress,
+                onRelevanceComplete, onQualityBatchComplete, cancellationToken);
+
+            totalApiCalls = result.TotalApiCalls;
+            relevantCount = result.RelevanceResult.RelevantCount;
+            totalInputTokens = result.TotalInputTokens;
+            totalOutputTokens = result.TotalOutputTokens;
+
+            _logger.LogInformation(
+                "Scoring completed for {Source}: {Relevant}/{Total} relevant, API calls: {ApiCalls}",
+                source.Name, relevantCount, articles.Count, totalApiCalls);
+        }
 
         // トークン使用量を通知
-        await _progressNotifier.NotifyTokenUsageAsync(keywordId, result.TotalInputTokens, result.TotalOutputTokens);
+        await _progressNotifier.NotifyTokenUsageAsync(keywordId, totalInputTokens, totalOutputTokens);
 
         // FinalScoreが未計算の記事を処理
         // - LlmScoreがない記事（フィルタで除外された記事）: フォールバック計算

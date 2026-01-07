@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(az account show:*)",
+      "Bash(node --version:*)",
+      "Bash(npm:*)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "azure"
+  ],
+  "enableAllProjectMcpServers": true
+}

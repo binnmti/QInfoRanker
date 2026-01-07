@@ -16,19 +16,26 @@ public class ScoringService : IScoringService
     private readonly AzureOpenAIOptions _openAIOptions;
     private readonly ScoringOptions _scoringOptions;
     private readonly BatchScoringOptions _batchOptions;
+    private readonly EnsembleScoringOptions _ensembleOptions;
     private readonly ILogger<ScoringService> _logger;
     private readonly AzureOpenAIClient? _client;
     private readonly ChatClient? _chatClient;
+
+    // アンサンブル評価用のJudge別クライアント
+    private readonly Dictionary<string, ChatClient> _judgeClients = new();
+    private ChatClient? _metaJudgeClient;
 
     public ScoringService(
         IOptions<AzureOpenAIOptions> openAIOptions,
         IOptions<ScoringOptions> scoringOptions,
         IOptions<BatchScoringOptions> batchOptions,
+        IOptions<EnsembleScoringOptions> ensembleOptions,
         ILogger<ScoringService> logger)
     {
         _openAIOptions = openAIOptions.Value;
         _scoringOptions = scoringOptions.Value;
         _batchOptions = batchOptions.Value;
+        _ensembleOptions = ensembleOptions.Value;
         _logger = logger;
 
         if (!string.IsNullOrEmpty(_openAIOptions.Endpoint) && !string.IsNullOrEmpty(_openAIOptions.ApiKey))
@@ -37,6 +44,45 @@ public class ScoringService : IScoringService
                 new Uri(_openAIOptions.Endpoint),
                 new ApiKeyCredential(_openAIOptions.ApiKey));
             _chatClient = _client.GetChatClient(_openAIOptions.DeploymentName);
+
+            // アンサンブル評価が有効な場合、各JudgeとMeta-Judgeのクライアントを初期化
+            if (_ensembleOptions.EnableEnsemble)
+            {
+                InitializeEnsembleClients();
+            }
+        }
+    }
+
+    private void InitializeEnsembleClients()
+    {
+        if (_client == null) return;
+
+        foreach (var judge in _ensembleOptions.Judges.Where(j => j.IsEnabled))
+        {
+            try
+            {
+                _judgeClients[judge.JudgeId] = _client.GetChatClient(judge.DeploymentName);
+                _logger.LogInformation("Initialized Judge client: {JudgeId} ({DeploymentName})",
+                    judge.JudgeId, judge.DeploymentName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to initialize Judge client: {JudgeId}", judge.JudgeId);
+            }
+        }
+
+        if (_ensembleOptions.MetaJudge.IsEnabled)
+        {
+            try
+            {
+                _metaJudgeClient = _client.GetChatClient(_ensembleOptions.MetaJudge.DeploymentName);
+                _logger.LogInformation("Initialized Meta-Judge client: {DeploymentName}",
+                    _ensembleOptions.MetaJudge.DeploymentName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to initialize Meta-Judge client");
+            }
         }
     }
 
@@ -702,7 +748,7 @@ public class ScoringService : IScoringService
         var articlesJsonStr = JsonSerializer.Serialize(articlesJson, new JsonSerializerOptions { WriteIndented = false });
 
         var prompt = $$"""
-            以下の技術記事（キーワード: {{keywordsStr}}）を評価し、日本語で詳細に要約してください。
+            以下の技術記事（キーワード: {{keywordsStr}}）を評価し、日本語で要約してください。
 
             評価項目（各0-20点、合計80点満点）:
             - technical: 技術的深さと重要性
@@ -723,17 +769,30 @@ public class ScoringService : IScoringService
                   "impact": 14,
                   "quality": 14,
                   "total": 56,
-                  "summary_ja": "詳細な要約をここに記載..."
+                  "summary_ja": "要約をここに記載..."
                 }
               ]
             }
 
-            summary_ja: 記事の内容を詳細に日本語で要約（250-400文字程度）。以下の観点を含めること:
-            - 記事の主題と目的
-            - 主要な技術的内容・手法
-            - 重要なポイントや発見
-            - 実用的な意義や応用可能性
-            技術者がこの要約だけで記事を読むべきか判断できる情報量を提供すること。
+            【summary_ja の書き方】
+            250-400文字程度で、記事固有の具体的な情報を簡潔に記述すること。技術者がこの要約だけで記事を読むべきか判断できる情報量を提供すること。
+
+            ■ 禁止事項（これらを使うと評価が下がります）:
+            - 「この記事は」「本記事では」で始める
+            - 「〜が期待されます」「〜に寄与する可能性があります」「〜に注目が集まっています」
+            - 「大きな影響を与える」「重要な意味を持つ」などの抽象的評価
+            - 「技術者必見」「興味深い」などの主観的形容
+
+            ■ 必須事項:
+            - 具体的な技術名・手法名・数値・結果を含める
+            - 何が・どうなった（または、どうする）を明確に書く
+            - 冒頭から本題に入る
+
+            ■ 良い例:
+            「GPT-4oのファインチューニングAPIが公開された。カスタムデータで追加学習が可能になり、1000サンプルで約15%の精度向上を達成。料金はベースモデルの2倍。」
+
+            ■ 悪い例:
+            「この記事はGPT-4oのファインチューニングについて解説しています。AI技術の発展に大きな影響が期待されます。技術者にとって重要な情報が含まれています。」
             """;
 
         var messages = new List<ChatMessage>
@@ -954,6 +1013,747 @@ public class ScoringService : IScoringService
         [JsonPropertyName("summary_ja")]
         public string? SummaryJa { get; set; }
     }
+
+    #endregion
+
+    #region アンサンブル評価
+
+    /// <inheritdoc />
+    public async Task<EnsembleEvaluationResult> EvaluateEnsembleAsync(
+        Article article,
+        IEnumerable<string> keywords,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var keywordList = keywords.ToList();
+        var result = new EnsembleEvaluationResult { ArticleId = article.Id };
+
+        // アンサンブルが無効またはクライアントがない場合、フォールバック
+        if (!_ensembleOptions.EnableEnsemble || !_judgeClients.Any())
+        {
+            _logger.LogInformation("Ensemble evaluation disabled, falling back to single model for article: {ArticleId}", article.Id);
+            return await FallbackToSingleModelEvaluationAsync(article, keywordList, cancellationToken);
+        }
+
+        // Phase 1: 全Judgeで並列評価
+        var judgeEvaluations = await EvaluateWithAllJudgesAsync(article, keywordList, cancellationToken);
+        result.JudgeEvaluations = judgeEvaluations;
+
+        // 評価が得られなかった場合のフォールバック
+        if (!judgeEvaluations.Any())
+        {
+            _logger.LogWarning("No judge evaluations obtained for article {ArticleId}, falling back", article.Id);
+            return await FallbackToSingleModelEvaluationAsync(article, keywordList, cancellationToken);
+        }
+
+        // Phase 2: コンセンサス判定
+        var hasConsensus = HasConsensus(judgeEvaluations);
+
+        if (hasConsensus && _ensembleOptions.SkipMetaJudgeOnConsensus)
+        {
+            // コンセンサスがあればMeta-Judgeをスキップ
+            _logger.LogInformation("Consensus reached for article {ArticleId}, skipping Meta-Judge", article.Id);
+            result.SkippedMetaJudge = true;
+            AggregateJudgeResults(result, judgeEvaluations);
+        }
+        else
+        {
+            // Phase 3: Meta-Judge統合評価
+            if (_metaJudgeClient != null && _ensembleOptions.MetaJudge.IsEnabled)
+            {
+                var metaResult = await EvaluateWithMetaJudgeAsync(article, keywordList, judgeEvaluations, cancellationToken);
+                result.MetaJudgeResult = metaResult;
+                if (metaResult != null)
+                {
+                    ApplyMetaJudgeResults(result, metaResult);
+                }
+                else
+                {
+                    // Meta-Judgeの解析に失敗した場合は重み付き平均
+                    AggregateJudgeResults(result, judgeEvaluations);
+                }
+            }
+            else
+            {
+                // Meta-Judgeが使えない場合は重み付き平均
+                AggregateJudgeResults(result, judgeEvaluations);
+            }
+        }
+
+        stopwatch.Stop();
+        result.TotalDuration = stopwatch.Elapsed;
+        result.TotalInputTokens = judgeEvaluations.Sum(j => j.InputTokens) + (result.MetaJudgeResult?.InputTokens ?? 0);
+        result.TotalOutputTokens = judgeEvaluations.Sum(j => j.OutputTokens) + (result.MetaJudgeResult?.OutputTokens ?? 0);
+
+        _logger.LogInformation(
+            "Ensemble evaluation completed for article {ArticleId}: Final={FinalTotal}, Confidence={Confidence:F2}, Duration={Duration}ms",
+            article.Id, result.FinalTotal, result.Confidence, stopwatch.ElapsedMilliseconds);
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<ThreeStageResult> EvaluateThreeStageAsync(
+        IEnumerable<Article> articles,
+        IEnumerable<string> keywords,
+        bool skipRelevanceFilter,
+        IProgress<ScoringProgress>? progress,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var articleList = articles.ToList();
+        var keywordList = keywords.ToList();
+        var result = new ThreeStageResult();
+
+        _logger.LogInformation("Starting 3-stage evaluation for {Count} articles, EnsembleEnabled={Enabled}",
+            articleList.Count, _ensembleOptions.EnableEnsemble);
+
+        // Stage 1: 関連性評価のみ実行（品質評価は行わない）
+        List<Article> relevantArticles;
+        if (skipRelevanceFilter)
+        {
+            result.RelevanceResult = MarkAllAsRelevant(articleList);
+            foreach (var article in articleList)
+            {
+                article.IsRelevant = true;
+                article.RelevanceScore = 10;
+            }
+            relevantArticles = articleList;
+        }
+        else
+        {
+            // Stage 1: 関連性評価のみ（EvaluateRelevanceBatchAsyncを直接呼び出し）
+            _logger.LogInformation("Stage 1: {Count}件の記事の関連性を評価中...", articleList.Count);
+            result.RelevanceResult = await EvaluateRelevanceBatchAsync(articleList, keywordList, progress, cancellationToken);
+
+            // 記事にRelevanceScoreを反映
+            foreach (var eval in result.RelevanceResult.Evaluations)
+            {
+                var article = articleList.FirstOrDefault(a => a.Id == eval.ArticleId);
+                if (article != null)
+                {
+                    article.RelevanceScore = eval.RelevanceScore;
+                    article.IsRelevant = eval.IsRelevant;
+                }
+            }
+
+            // 評価されなかった記事（LLMレスポンス不足）にデフォルト値を設定
+            var unevaluatedArticles = articleList.Where(a => a.IsRelevant == null).ToList();
+            if (unevaluatedArticles.Any())
+            {
+                _logger.LogWarning("{Count}件の記事が関連性評価されませんでした。デフォルトで関連ありとしてマーク。", unevaluatedArticles.Count);
+                foreach (var article in unevaluatedArticles)
+                {
+                    article.IsRelevant = true;
+                    article.RelevanceScore = 7;
+                    result.RelevanceResult.Evaluations.Add(new ArticleRelevance
+                    {
+                        ArticleId = article.Id,
+                        RelevanceScore = 7,
+                        IsRelevant = true,
+                        Reason = "LLMレスポンス不足のためデフォルト設定"
+                    });
+                }
+                result.RelevanceResult.RelevantCount += unevaluatedArticles.Count;
+            }
+
+            relevantArticles = articleList.Where(a => a.IsRelevant == true).ToList();
+            _logger.LogInformation("Stage 1完了: {Relevant}件が関連あり ({Filtered}件を除外)",
+                relevantArticles.Count, result.RelevanceResult.FilteredCount);
+        }
+
+        if (!relevantArticles.Any())
+        {
+            _logger.LogInformation("No relevant articles after Stage 1 filtering");
+            stopwatch.Stop();
+            result.TotalDuration = stopwatch.Elapsed;
+            return result;
+        }
+
+        // Stage 2 + 3: アンサンブル評価
+        var ensembleResults = new List<EnsembleEvaluationResult>();
+        var processedCount = 0;
+
+        foreach (var article in relevantArticles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var ensembleResult = await EvaluateEnsembleAsync(article, keywordList, cancellationToken);
+            ensembleResults.Add(ensembleResult);
+
+            // 結果をArticleに反映
+            article.TechnicalScore = ensembleResult.FinalTechnical;
+            article.NoveltyScore = ensembleResult.FinalNovelty;
+            article.ImpactScore = ensembleResult.FinalImpact;
+            article.QualityScore = ensembleResult.FinalQuality;
+            article.LlmScore = ensembleResult.FinalTotal;
+            article.SummaryJa = ensembleResult.FinalSummaryJa;
+
+            processedCount++;
+            progress?.Report(new ScoringProgress(
+                ScoringStage.QualityEvaluation,
+                processedCount,
+                relevantArticles.Count,
+                processedCount,
+                relevantArticles.Count,
+                relevantArticles.Count,
+                $"アンサンブル評価中: {processedCount}/{relevantArticles.Count}"));
+
+            // レート制限対策の待機
+            if (processedCount < relevantArticles.Count)
+            {
+                await Task.Delay(_batchOptions.DelayBetweenBatchesMs, cancellationToken);
+            }
+        }
+
+        result.EnsembleResults = ensembleResults;
+        result.MetaJudgeSkippedCount = ensembleResults.Count(e => e.SkippedMetaJudge);
+        result.TotalInputTokens = result.RelevanceResult.InputTokens + ensembleResults.Sum(e => e.TotalInputTokens);
+        result.TotalOutputTokens = result.RelevanceResult.OutputTokens + ensembleResults.Sum(e => e.TotalOutputTokens);
+        result.TotalApiCalls = result.RelevanceResult.ApiCallCount +
+            ensembleResults.Sum(e => e.JudgeEvaluations.Count) +
+            ensembleResults.Count(e => e.MetaJudgeResult != null);
+
+        stopwatch.Stop();
+        result.TotalDuration = stopwatch.Elapsed;
+
+        // コスト概算（モデル料金は変動するため概算）
+        result.EstimatedCostUsd = CalculateEstimatedCost(result);
+
+        _logger.LogInformation(
+            "3-stage evaluation completed: {Relevant}/{Total} articles, Duration={Duration}s, EstimatedCost=${Cost:F4}",
+            relevantArticles.Count, articleList.Count, result.TotalDuration.TotalSeconds, result.EstimatedCostUsd);
+
+        return result;
+    }
+
+    private async Task<List<JudgeEvaluation>> EvaluateWithAllJudgesAsync(
+        Article article,
+        List<string> keywords,
+        CancellationToken cancellationToken)
+    {
+        var enabledJudges = _ensembleOptions.Judges.Where(j => j.IsEnabled && _judgeClients.ContainsKey(j.JudgeId)).ToList();
+        var semaphore = new SemaphoreSlim(_ensembleOptions.MaxParallelJudges);
+        var results = new List<JudgeEvaluation>();
+
+        var tasks = enabledJudges.Select(async judge =>
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(_ensembleOptions.JudgeTimeoutMs);
+
+                return await EvaluateWithSingleJudgeAsync(article, keywords, judge, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Judge {JudgeId} timed out for article {ArticleId}", judge.JudgeId, article.Id);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Judge {JudgeId} failed for article {ArticleId}", judge.JudgeId, article.Id);
+                return null;
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        var evaluations = await Task.WhenAll(tasks);
+        return evaluations.Where(e => e != null).Cast<JudgeEvaluation>().ToList();
+    }
+
+    private async Task<JudgeEvaluation?> EvaluateWithSingleJudgeAsync(
+        Article article,
+        List<string> keywords,
+        JudgeModelConfiguration judgeConfig,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var client = _judgeClients[judgeConfig.JudgeId];
+
+        var systemPrompt = BuildJudgeSystemPrompt(judgeConfig.Specialty);
+        var userPrompt = BuildJudgeUserPrompt(article, keywords);
+
+        var messages = new List<ChatMessage>
+        {
+            new SystemChatMessage(systemPrompt),
+            new UserChatMessage(userPrompt)
+        };
+
+        // モデルの機能に応じてパラメータを自動設定
+        var options = new ChatCompletionOptions();
+        var deploymentName = judgeConfig.DeploymentName;
+
+        // Temperature: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
+        var effectiveTemp = ModelCapabilities.GetEffectiveTemperature(deploymentName, judgeConfig.Temperature);
+        if (effectiveTemp.HasValue)
+        {
+            options.Temperature = effectiveTemp.Value;
+        }
+
+        // MaxTokens: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
+        var effectiveMaxTokens = ModelCapabilities.GetEffectiveMaxTokens(deploymentName, judgeConfig.MaxTokens > 0 ? judgeConfig.MaxTokens : null);
+        if (effectiveMaxTokens.HasValue)
+        {
+            options.MaxOutputTokenCount = effectiveMaxTokens.Value;
+        }
+
+        var isReasoningModel = ModelCapabilities.IsReasoningModel(deploymentName);
+        _logger.LogDebug("Judge {JudgeId} using model {Model} (reasoning={IsReasoning}, temp={Temp}, maxTokens={MaxTokens})",
+            judgeConfig.JudgeId, deploymentName, isReasoningModel,
+            effectiveTemp?.ToString() ?? "N/A", effectiveMaxTokens?.ToString() ?? "N/A");
+
+        ChatCompletion? response = null;
+        try
+        {
+            response = await client.CompleteChatAsync(messages, options, cancellationToken);
+        }
+        catch (ClientResultException ex) when (ex.Message.Contains("unsupported_parameter") || ex.Message.Contains("unsupported_value"))
+        {
+            _logger.LogWarning(ex, "Judge {JudgeId} API parameter error. Model={Model}, IsReasoning={IsReasoning}",
+                judgeConfig.JudgeId, judgeConfig.DeploymentName, isReasoningModel);
+            throw;
+        }
+
+        if (response == null)
+        {
+            _logger.LogError("Judge {JudgeId} failed to get response for article {ArticleId}", judgeConfig.JudgeId, article.Id);
+            return null;
+        }
+
+        var content = response.Content[0].Text;
+        stopwatch.Stop();
+
+        var parsed = ParseJudgeEvaluation(content, judgeConfig);
+        if (parsed != null)
+        {
+            parsed.Duration = stopwatch.Elapsed;
+            parsed.InputTokens = response.Usage?.InputTokenCount ?? 0;
+            parsed.OutputTokens = response.Usage?.OutputTokenCount ?? 0;
+        }
+
+        return parsed;
+    }
+
+    private async Task<MetaJudgeResult?> EvaluateWithMetaJudgeAsync(
+        Article article,
+        List<string> keywords,
+        List<JudgeEvaluation> judgeEvaluations,
+        CancellationToken cancellationToken)
+    {
+        if (_metaJudgeClient == null) return null;
+
+        var stopwatch = Stopwatch.StartNew();
+        var systemPrompt = BuildMetaJudgeSystemPrompt();
+        var userPrompt = BuildMetaJudgeUserPrompt(article, keywords, judgeEvaluations);
+
+        var messages = new List<ChatMessage>
+        {
+            new SystemChatMessage(systemPrompt),
+            new UserChatMessage(userPrompt)
+        };
+
+        // モデルの機能に応じてパラメータを自動設定
+        var options = new ChatCompletionOptions();
+        var metaJudgeDeployment = _ensembleOptions.MetaJudge.DeploymentName;
+
+        // Temperature: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
+        var effectiveTemp = ModelCapabilities.GetEffectiveTemperature(metaJudgeDeployment, _ensembleOptions.MetaJudge.Temperature);
+        if (effectiveTemp.HasValue)
+        {
+            options.Temperature = effectiveTemp.Value;
+        }
+
+        // MaxTokens: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
+        var effectiveMaxTokens = ModelCapabilities.GetEffectiveMaxTokens(metaJudgeDeployment,
+            _ensembleOptions.MetaJudge.MaxTokens > 0 ? _ensembleOptions.MetaJudge.MaxTokens : null);
+        if (effectiveMaxTokens.HasValue)
+        {
+            options.MaxOutputTokenCount = effectiveMaxTokens.Value;
+        }
+
+        var isReasoningModel = ModelCapabilities.IsReasoningModel(metaJudgeDeployment);
+        _logger.LogDebug("Meta-Judge using model {Model} (reasoning={IsReasoning}, temp={Temp}, maxTokens={MaxTokens})",
+            metaJudgeDeployment, isReasoningModel,
+            effectiveTemp?.ToString() ?? "N/A", effectiveMaxTokens?.ToString() ?? "N/A");
+
+        ChatCompletion? response = null;
+        try
+        {
+            response = await _metaJudgeClient.CompleteChatAsync(messages, options, cancellationToken);
+        }
+        catch (ClientResultException ex) when (ex.Message.Contains("unsupported_parameter") || ex.Message.Contains("unsupported_value"))
+        {
+            _logger.LogWarning(ex, "Meta-Judge API parameter error. Model={Model}, IsReasoning={IsReasoning}",
+                metaJudgeDeployment, isReasoningModel);
+            throw;
+        }
+
+        try
+        {
+            if (response == null)
+            {
+                _logger.LogError("Meta-Judge failed to get response for article {ArticleId}", article.Id);
+                return null;
+            }
+
+            var content = response.Content[0].Text;
+            stopwatch.Stop();
+
+            var result = ParseMetaJudgeResult(content);
+            if (result != null)
+            {
+                result.Duration = stopwatch.Elapsed;
+                result.InputTokens = response.Usage?.InputTokenCount ?? 0;
+                result.OutputTokens = response.Usage?.OutputTokenCount ?? 0;
+
+                // 矛盾検出
+                result.HasContradiction = DetectContradictions(judgeEvaluations, result.Contradictions);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Meta-Judge evaluation failed for article {ArticleId}", article.Id);
+            return null;
+        }
+    }
+
+    private bool HasConsensus(List<JudgeEvaluation> evaluations)
+    {
+        if (evaluations.Count < 2) return true;
+
+        var threshold = _ensembleOptions.ConsensusThreshold;
+
+        var dimensions = new[]
+        {
+            evaluations.Select(e => e.Technical).ToList(),
+            evaluations.Select(e => e.Novelty).ToList(),
+            evaluations.Select(e => e.Impact).ToList(),
+            evaluations.Select(e => e.Quality).ToList()
+        };
+
+        return dimensions.All(d => d.Max() - d.Min() <= threshold);
+    }
+
+    private bool DetectContradictions(List<JudgeEvaluation> evaluations, List<ContradictionDetail> contradictions)
+    {
+        var threshold = _ensembleOptions.MetaJudge.ContradictionThreshold;
+        var hasContradiction = false;
+
+        var dimensions = new[] { "Technical", "Novelty", "Impact", "Quality" };
+        var getters = new Func<JudgeEvaluation, int>[]
+        {
+            e => e.Technical, e => e.Novelty, e => e.Impact, e => e.Quality
+        };
+
+        for (int i = 0; i < dimensions.Length; i++)
+        {
+            for (int j = 0; j < evaluations.Count; j++)
+            {
+                for (int k = j + 1; k < evaluations.Count; k++)
+                {
+                    var scoreA = getters[i](evaluations[j]);
+                    var scoreB = getters[i](evaluations[k]);
+                    var diff = Math.Abs(scoreA - scoreB);
+
+                    if (diff > threshold)
+                    {
+                        hasContradiction = true;
+                        contradictions.Add(new ContradictionDetail
+                        {
+                            Dimension = dimensions[i],
+                            JudgeA = evaluations[j].JudgeId,
+                            ScoreA = scoreA,
+                            JudgeB = evaluations[k].JudgeId,
+                            ScoreB = scoreB,
+                            Difference = diff
+                        });
+                    }
+                }
+            }
+        }
+
+        return hasContradiction;
+    }
+
+    private void AggregateJudgeResults(EnsembleEvaluationResult result, List<JudgeEvaluation> evaluations)
+    {
+        var totalWeight = evaluations.Sum(e => e.Weight);
+        if (totalWeight == 0) totalWeight = 1;
+
+        result.FinalTechnical = (int)Math.Round(evaluations.Sum(e => e.Technical * e.Weight) / totalWeight);
+        result.FinalNovelty = (int)Math.Round(evaluations.Sum(e => e.Novelty * e.Weight) / totalWeight);
+        result.FinalImpact = (int)Math.Round(evaluations.Sum(e => e.Impact * e.Weight) / totalWeight);
+        result.FinalQuality = (int)Math.Round(evaluations.Sum(e => e.Quality * e.Weight) / totalWeight);
+        result.FinalTotal = result.FinalTechnical + result.FinalNovelty + result.FinalImpact + result.FinalQuality;
+
+        // 信頼度はコンセンサス度合いから計算（標準偏差の逆数）
+        var stdDevs = new[]
+        {
+            CalculateStdDev(evaluations.Select(e => (double)e.Technical)),
+            CalculateStdDev(evaluations.Select(e => (double)e.Novelty)),
+            CalculateStdDev(evaluations.Select(e => (double)e.Impact)),
+            CalculateStdDev(evaluations.Select(e => (double)e.Quality))
+        };
+        var avgStdDev = stdDevs.Average();
+        result.Confidence = Math.Max(0, Math.Min(1, 1 - (avgStdDev / 25))); // 25点満点の軸を想定
+
+        // サマリーは最初のJudgeのものを使用（後でMeta-Judgeが統合する場合は上書きされる）
+        result.FinalSummaryJa = evaluations.FirstOrDefault()?.SummaryJa ?? string.Empty;
+    }
+
+    private void ApplyMetaJudgeResults(EnsembleEvaluationResult result, MetaJudgeResult metaResult)
+    {
+        result.FinalTechnical = metaResult.FinalTechnical;
+        result.FinalNovelty = metaResult.FinalNovelty;
+        result.FinalImpact = metaResult.FinalImpact;
+        result.FinalQuality = metaResult.FinalQuality;
+        result.FinalTotal = metaResult.FinalTotal;
+        result.Confidence = metaResult.Confidence;
+        result.FinalSummaryJa = metaResult.ConsolidatedSummary;
+    }
+
+    private async Task<EnsembleEvaluationResult> FallbackToSingleModelEvaluationAsync(
+        Article article,
+        List<string> keywords,
+        CancellationToken cancellationToken)
+    {
+        var result = new EnsembleEvaluationResult { ArticleId = article.Id, SkippedMetaJudge = true };
+
+        // 既存の単一モデル評価を利用
+        var articles = new[] { article }.ToList();
+        var twoStageResult = await EvaluateTwoStageAsync(articles, keywords, true, null, cancellationToken);
+
+        if (twoStageResult.QualityResult.Evaluations.Any())
+        {
+            var quality = twoStageResult.QualityResult.Evaluations.First();
+            result.FinalTechnical = quality.Technical;
+            result.FinalNovelty = quality.Novelty;
+            result.FinalImpact = quality.Impact;
+            result.FinalQuality = quality.Quality;
+            result.FinalTotal = quality.Total;
+            result.FinalSummaryJa = quality.SummaryJa;
+            result.Confidence = 0.7; // 単一モデルなので信頼度は固定
+            result.TotalInputTokens = twoStageResult.TotalInputTokens;
+            result.TotalOutputTokens = twoStageResult.TotalOutputTokens;
+        }
+
+        return result;
+    }
+
+    private double CalculateStdDev(IEnumerable<double> values)
+    {
+        var list = values.ToList();
+        if (list.Count <= 1) return 0;
+        var avg = list.Average();
+        var sumSquares = list.Sum(v => (v - avg) * (v - avg));
+        return Math.Sqrt(sumSquares / list.Count);
+    }
+
+    private decimal CalculateEstimatedCost(ThreeStageResult result)
+    {
+        // 概算コスト（モデルごとの料金は変動するため概算）
+        // gpt-4o-mini: Input $0.15/1M, Output $0.60/1M
+        // gpt-5系: Input $0.50/1M, Output $2.00/1M (概算)
+        // o3系: Input $1.00/1M, Output $4.00/1M (概算)
+        // o3-pro: Input $5.00/1M, Output $20.00/1M (概算)
+
+        // 簡略化のため平均的なコストで計算
+        var avgInputRate = 0.001m; // $1.00/1M
+        var avgOutputRate = 0.004m; // $4.00/1M
+
+        return (result.TotalInputTokens * avgInputRate / 1000) + (result.TotalOutputTokens * avgOutputRate / 1000);
+    }
+
+    #region Judge/Meta-Judge プロンプト
+
+    private string BuildJudgeSystemPrompt(string? specialty)
+    {
+        var basePrompt = @"あなたは技術記事を評価する専門家です。
+各項目を0-25点で採点し、必ず採点理由を具体的に説明してください。
+回答はJSON形式で出力してください。";
+
+        var specialtyPrompt = specialty switch
+        {
+            "technical" => @"
+あなたは特に技術的正確性と実装の深さを評価する専門家です。
+コードの品質、アーキテクチャの妥当性、技術選定の適切さに注目してください。",
+            "reasoning" => @"
+あなたは特に論理的一貫性と推論の質を評価する専門家です。
+主張の根拠、論理展開、結論の妥当性に注目してください。",
+            _ => ""
+        };
+
+        return basePrompt + specialtyPrompt;
+    }
+
+    private string BuildJudgeUserPrompt(Article article, List<string> keywords)
+    {
+        return $@"以下の技術記事を評価してください。
+
+関連キーワード: {string.Join(", ", keywords)}
+
+【記事情報】
+タイトル: {article.Title}
+ソース: {article.Source?.Name ?? "Unknown"}
+URL: {article.Url}
+概要: {TruncateText(article.Summary, 1000)}
+
+以下のJSON形式で回答してください:
+{{
+  ""technical"": 0-25の整数,
+  ""technical_reason"": ""技術的深さの評価理由"",
+  ""novelty"": 0-25の整数,
+  ""novelty_reason"": ""新規性の評価理由"",
+  ""impact"": 0-25の整数,
+  ""impact_reason"": ""影響度の評価理由"",
+  ""quality"": 0-25の整数,
+  ""quality_reason"": ""品質の評価理由"",
+  ""total"": 0-100の整数（各項目の合計）,
+  ""summary_ja"": ""記事の要約（日本語、200字程度）""
+}}";
+    }
+
+    private string BuildMetaJudgeSystemPrompt()
+    {
+        return @"あなたは複数の評価者の判断を統合する総括評価者です。
+
+タスク:
+1. 各評価者のスコアと理由を分析
+2. 矛盾点を特定し、妥当な解決策を提示
+3. 各評価者の専門性と重みを考慮した最終スコアを決定
+4. 信頼度（0.0-1.0）を算出
+5. 要約を統合・改善
+
+回答はJSON形式で出力してください。";
+    }
+
+    private string BuildMetaJudgeUserPrompt(Article article, List<string> keywords, List<JudgeEvaluation> evaluations)
+    {
+        var evaluationsSummary = string.Join("\n", evaluations.Select(e =>
+            $@"【{e.JudgeDisplayName}】(重み: {e.Weight})
+  Technical: {e.Technical} - {e.TechnicalReason}
+  Novelty: {e.Novelty} - {e.NoveltyReason}
+  Impact: {e.Impact} - {e.ImpactReason}
+  Quality: {e.Quality} - {e.QualityReason}
+  要約: {e.SummaryJa}"));
+
+        return $@"以下の記事に対する複数評価者の判断を統合してください。
+
+【記事】
+タイトル: {article.Title}
+ソース: {article.Source?.Name ?? "Unknown"}
+キーワード: {string.Join(", ", keywords)}
+
+【各評価者の判断】
+{evaluationsSummary}
+
+以下のJSON形式で最終判断を出力してください:
+{{
+  ""final_technical"": 0-25の整数,
+  ""final_novelty"": 0-25の整数,
+  ""final_impact"": 0-25の整数,
+  ""final_quality"": 0-25の整数,
+  ""final_total"": 0-100の整数,
+  ""confidence"": 0.0-1.0の小数（判断の信頼度）,
+  ""rationale"": ""最終判断の根拠（評価者間の差異がある場合はその解決理由も含む）"",
+  ""consolidated_summary"": ""統合された要約（日本語、300字程度）""
+}}";
+    }
+
+    private JudgeEvaluation? ParseJudgeEvaluation(string content, JudgeModelConfiguration judgeConfig)
+    {
+        try
+        {
+            var cleaned = CleanJsonResponse(content);
+            _logger.LogDebug("Judge {JudgeId} raw response: {Content}", judgeConfig.JudgeId, content.Substring(0, Math.Min(500, content.Length)));
+            _logger.LogDebug("Judge {JudgeId} cleaned JSON: {Cleaned}", judgeConfig.JudgeId, cleaned.Substring(0, Math.Min(500, cleaned.Length)));
+
+            var json = JsonDocument.Parse(cleaned);
+            var root = json.RootElement;
+
+            // スコアを取得（数値/文字列両対応）
+            int GetScoreValue(JsonElement element, string propName)
+            {
+                if (!element.TryGetProperty(propName, out var prop)) return 0;
+                if (prop.ValueKind == JsonValueKind.Number) return prop.GetInt32();
+                if (prop.ValueKind == JsonValueKind.String && int.TryParse(prop.GetString(), out var val)) return val;
+                return 0;
+            }
+
+            var evaluation = new JudgeEvaluation
+            {
+                JudgeId = judgeConfig.JudgeId,
+                JudgeDisplayName = judgeConfig.DisplayName,
+                Weight = judgeConfig.Weight,
+                Technical = GetScoreValue(root, "technical"),
+                TechnicalReason = root.TryGetProperty("technical_reason", out var tr) ? tr.GetString() ?? "" : "",
+                Novelty = GetScoreValue(root, "novelty"),
+                NoveltyReason = root.TryGetProperty("novelty_reason", out var nr) ? nr.GetString() ?? "" : "",
+                Impact = GetScoreValue(root, "impact"),
+                ImpactReason = root.TryGetProperty("impact_reason", out var ir) ? ir.GetString() ?? "" : "",
+                Quality = GetScoreValue(root, "quality"),
+                QualityReason = root.TryGetProperty("quality_reason", out var qr) ? qr.GetString() ?? "" : "",
+                Total = GetScoreValue(root, "total"),
+                SummaryJa = root.TryGetProperty("summary_ja", out var s) ? s.GetString() ?? "" : ""
+            };
+
+            // スコアが全て0の場合は警告
+            if (evaluation.Technical == 0 && evaluation.Novelty == 0 && evaluation.Impact == 0 && evaluation.Quality == 0)
+            {
+                _logger.LogWarning("Judge {JudgeId} returned all zero scores. Raw response: {Content}",
+                    judgeConfig.JudgeId, content.Substring(0, Math.Min(1000, content.Length)));
+            }
+            else
+            {
+                _logger.LogInformation("Judge {JudgeId} scores: T={Technical}, N={Novelty}, I={Impact}, Q={Quality}, Total={Total}",
+                    judgeConfig.JudgeId, evaluation.Technical, evaluation.Novelty, evaluation.Impact, evaluation.Quality, evaluation.Total);
+            }
+
+            return evaluation;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse judge {JudgeId} evaluation response. Raw content: {Content}",
+                judgeConfig.JudgeId, content.Substring(0, Math.Min(1000, content.Length)));
+            return null;
+        }
+    }
+
+    private MetaJudgeResult? ParseMetaJudgeResult(string content)
+    {
+        try
+        {
+            var cleaned = CleanJsonResponse(content);
+            var json = JsonDocument.Parse(cleaned);
+            var root = json.RootElement;
+
+            return new MetaJudgeResult
+            {
+                FinalTechnical = root.TryGetProperty("final_technical", out var t) ? t.GetInt32() : 0,
+                FinalNovelty = root.TryGetProperty("final_novelty", out var n) ? n.GetInt32() : 0,
+                FinalImpact = root.TryGetProperty("final_impact", out var i) ? i.GetInt32() : 0,
+                FinalQuality = root.TryGetProperty("final_quality", out var q) ? q.GetInt32() : 0,
+                FinalTotal = root.TryGetProperty("final_total", out var total) ? total.GetInt32() : 0,
+                Confidence = root.TryGetProperty("confidence", out var c) ? c.GetDouble() : 0.5,
+                Rationale = root.TryGetProperty("rationale", out var r) ? r.GetString() ?? "" : "",
+                ConsolidatedSummary = root.TryGetProperty("consolidated_summary", out var s) ? s.GetString() ?? "" : ""
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse meta-judge response");
+            return null;
+        }
+    }
+
+    #endregion
 
     #endregion
 }

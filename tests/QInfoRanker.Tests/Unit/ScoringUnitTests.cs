@@ -22,9 +22,10 @@ public class ScoringUnitTests
         var openAIOptions = Options.Create(new AzureOpenAIOptions());
         var scoringOptions = Options.Create(new ScoringOptions());
         var batchOptions = Options.Create(new BatchScoringOptions());
+        var ensembleOptions = Options.Create(new EnsembleScoringOptions());
 
         _scoringService = new ScoringService(
-            openAIOptions, scoringOptions, batchOptions,
+            openAIOptions, scoringOptions, batchOptions, ensembleOptions,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ScoringService>.Instance);
     }
 

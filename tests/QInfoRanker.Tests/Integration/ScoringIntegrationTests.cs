@@ -39,9 +39,10 @@ public class ScoringIntegrationTests : IDisposable
         var openAIOptions = Options.Create(_configuration.GetSection("AzureOpenAI").Get<AzureOpenAIOptions>()!);
         var scoringOptions = Options.Create(_configuration.GetSection("Scoring").Get<ScoringOptions>() ?? new ScoringOptions());
         var batchOptions = Options.Create(_configuration.GetSection("BatchScoring").Get<BatchScoringOptions>() ?? new BatchScoringOptions());
+        var ensembleOptions = Options.Create(_configuration.GetSection("EnsembleScoring").Get<EnsembleScoringOptions>() ?? new EnsembleScoringOptions());
         var logger = CreateLogger<ScoringService>();
 
-        _scoringService = new ScoringService(openAIOptions, scoringOptions, batchOptions, logger);
+        _scoringService = new ScoringService(openAIOptions, scoringOptions, batchOptions, ensembleOptions, logger);
     }
 
     #region Single Article Scoring Tests

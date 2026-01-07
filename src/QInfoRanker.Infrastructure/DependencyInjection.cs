@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.Configure<AzureOpenAIOptions>(configuration.GetSection(AzureOpenAIOptions.SectionName));
         services.Configure<ScoringOptions>(configuration.GetSection(ScoringOptions.SectionName));
         services.Configure<BatchScoringOptions>(configuration.GetSection(BatchScoringOptions.SectionName));
+        services.Configure<EnsembleScoringOptions>(configuration.GetSection(EnsembleScoringOptions.SectionName));
 
         // HttpClient for collectors
         services.AddHttpClient<HackerNewsCollector>();
