@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
 using QInfoRanker.Core.Entities;
+using QInfoRanker.Core.Enums;
 using QInfoRanker.Core.Interfaces.Services;
 using QInfoRanker.Infrastructure.Data;
 using QInfoRanker.Infrastructure.Scoring;
@@ -105,21 +106,17 @@ public class WeeklySummaryService : IWeeklySummaryService
 
         var (weekStart, weekEnd) = GetCurrentWeekRange();
 
-        var articles = await _context.Articles
-            .Where(a => a.KeywordId == keywordId)
-            .Where(a => a.CollectedAt >= weekStart && a.CollectedAt <= weekEnd)
-            .Where(a => a.IsRelevant == true)
-            .OrderByDescending(a => a.FinalScore)
-            .Take(MaxArticlesForSummary)
-            .ToListAsync(cancellationToken);
+        // カテゴリ別に記事を取得
+        var categoryArticles = await GetArticlesByCategoryAsync(keywordId, weekStart, weekEnd, cancellationToken);
+        var totalCount = categoryArticles.News.Count + categoryArticles.Tech.Count + categoryArticles.Academic.Count;
 
-        if (articles.Count < MinArticlesForSummary)
+        if (totalCount < MinArticlesForSummary)
         {
             throw new InvalidOperationException(
-                $"Not enough articles to generate summary. Found {articles.Count}, need at least {MinArticlesForSummary}.");
+                $"Not enough articles to generate summary. Found {totalCount}, need at least {MinArticlesForSummary}.");
         }
 
-        var (title, content) = await GenerateSummaryContentAsync(keyword.Term, articles, cancellationToken);
+        var (title, content) = await GenerateSummaryContentAsync(keyword.Term, categoryArticles, cancellationToken);
 
         var existing = await _context.WeeklySummaries
             .FirstOrDefaultAsync(w => w.KeywordId == keywordId && w.WeekStart == weekStart, cancellationToken);
@@ -128,12 +125,12 @@ public class WeeklySummaryService : IWeeklySummaryService
         {
             existing.Title = title;
             existing.Content = content;
-            existing.ArticleCount = articles.Count;
+            existing.ArticleCount = totalCount;
             existing.GeneratedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation("Updated weekly summary for keyword '{Keyword}' with {Count} articles",
-                keyword.Term, articles.Count);
+                keyword.Term, totalCount);
 
             return existing;
         }
@@ -145,7 +142,7 @@ public class WeeklySummaryService : IWeeklySummaryService
             WeekEnd = weekEnd,
             Title = title,
             Content = content,
-            ArticleCount = articles.Count,
+            ArticleCount = totalCount,
             GeneratedAt = DateTime.UtcNow
         };
 
@@ -153,71 +150,153 @@ public class WeeklySummaryService : IWeeklySummaryService
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Generated weekly summary for keyword '{Keyword}' with {Count} articles",
-            keyword.Term, articles.Count);
+            keyword.Term, totalCount);
 
         return summary;
     }
 
+    private async Task<CategoryArticles> GetArticlesByCategoryAsync(
+        int keywordId,
+        DateTime weekStart,
+        DateTime weekEnd,
+        CancellationToken cancellationToken)
+    {
+        // ニュース: PublishedAtが今週
+        var newsArticles = await _context.Articles
+            .Include(a => a.Source)
+            .Where(a => a.KeywordId == keywordId)
+            .Where(a => a.Source.Category == SourceCategory.News)
+            .Where(a => a.IsRelevant == true && a.LlmScore.HasValue)
+            .Where(a => a.PublishedAt.HasValue && a.PublishedAt.Value >= weekStart && a.PublishedAt.Value <= weekEnd)
+            .OrderByDescending(a => a.FinalScore)
+            .Take(10)
+            .ToListAsync(cancellationToken);
+
+        // 技術記事: CollectedAtが今週
+        var techArticles = await _context.Articles
+            .Include(a => a.Source)
+            .Where(a => a.KeywordId == keywordId)
+            .Where(a => a.Source.Category == SourceCategory.Technology)
+            .Where(a => a.IsRelevant == true && a.LlmScore.HasValue)
+            .Where(a => a.CollectedAt >= weekStart && a.CollectedAt <= weekEnd)
+            .OrderByDescending(a => a.FinalScore)
+            .Take(10)
+            .ToListAsync(cancellationToken);
+
+        // 研究: CollectedAtが今週
+        var academicArticles = await _context.Articles
+            .Include(a => a.Source)
+            .Where(a => a.KeywordId == keywordId)
+            .Where(a => a.Source.Category == SourceCategory.Academic)
+            .Where(a => a.IsRelevant == true && a.LlmScore.HasValue)
+            .Where(a => a.CollectedAt >= weekStart && a.CollectedAt <= weekEnd)
+            .OrderByDescending(a => a.FinalScore)
+            .Take(10)
+            .ToListAsync(cancellationToken);
+
+        return new CategoryArticles(newsArticles, techArticles, academicArticles);
+    }
+
+    private record CategoryArticles(List<Article> News, List<Article> Tech, List<Article> Academic);
+
     private async Task<(string Title, string Content)> GenerateSummaryContentAsync(
         string keywordTerm,
-        List<Article> articles,
+        CategoryArticles categoryArticles,
         CancellationToken cancellationToken)
     {
         if (_chatClient == null)
         {
             _logger.LogWarning("Azure OpenAI not configured. Using fallback summary.");
-            return GenerateFallbackSummary(keywordTerm, articles);
+            return GenerateFallbackSummary(keywordTerm, categoryArticles);
         }
 
-        var articleList = new StringBuilder();
-        for (var i = 0; i < articles.Count; i++)
+        var articleInfo = new StringBuilder();
+
+        // ニュース
+        if (categoryArticles.News.Any())
         {
-            var article = articles[i];
-            var summary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
-            articleList.AppendLine($"{i + 1}. 【{article.Title}】");
-            articleList.AppendLine($"   URL: {article.Url}");
-            articleList.AppendLine($"   要約: {summary}");
-            articleList.AppendLine($"   スコア: {article.FinalScore:F1} / ソース: {article.Source?.Name ?? "不明"}");
-            articleList.AppendLine();
+            articleInfo.AppendLine("【ニュース】");
+            foreach (var article in categoryArticles.News)
+            {
+                var summary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
+                articleInfo.AppendLine($"- タイトル: {article.Title}");
+                articleInfo.AppendLine($"  URL: {article.Url}");
+                articleInfo.AppendLine($"  要約: {summary}");
+                articleInfo.AppendLine();
+            }
+        }
+
+        // 技術記事
+        if (categoryArticles.Tech.Any())
+        {
+            articleInfo.AppendLine("【技術記事】");
+            foreach (var article in categoryArticles.Tech)
+            {
+                var summary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
+                articleInfo.AppendLine($"- タイトル: {article.Title}");
+                articleInfo.AppendLine($"  URL: {article.Url}");
+                articleInfo.AppendLine($"  要約: {summary}");
+                articleInfo.AppendLine();
+            }
+        }
+
+        // 研究
+        if (categoryArticles.Academic.Any())
+        {
+            articleInfo.AppendLine("【研究・論文】");
+            foreach (var article in categoryArticles.Academic)
+            {
+                var summary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
+                articleInfo.AppendLine($"- タイトル: {article.Title}");
+                articleInfo.AppendLine($"  URL: {article.Url}");
+                articleInfo.AppendLine($"  要約: {summary}");
+                articleInfo.AppendLine();
+            }
         }
 
         var (weekStart, weekEnd) = GetCurrentWeekRange();
         var prompt = $$"""
-            あなたは優秀なテクノロジーニュースライターです。
-            以下の記事情報を元に、「{{keywordTerm}}」に関する今週（{{weekStart:M/d}}〜{{weekEnd:M/d}}）のニュース記事を日本語で書いてください。
+            あなたは優秀なテクノロジーアナリストです。
+            以下の記事情報を元に、「{{keywordTerm}}」に関する今週（{{weekStart:M/d}}〜{{weekEnd:M/d}}）の動向を日本語でまとめてください。
 
-            【収集した記事一覧】
-            {{articleList}}
+            【今週の記事（カテゴリ別）】
+            {{articleInfo}}
 
             【出力形式】
             以下のJSON形式で回答してください：
             {
-              "title": "キャッチーな見出し（30文字以内）",
-              "content": "Markdown形式の本文"
+              "title": "今週の動向を表す具体的な見出し（25文字以内）",
+              "content": "Markdown形式の本文（必ずリンクを含む）"
             }
 
-            【本文の構成】
-            1. **導入**（1-2段落）: 今週の{{keywordTerm}}に関する動向を簡潔に紹介
-            2. **今週のハイライト**（7-10トピック）: 重要なトピックを見出し付きで詳しく解説。各トピックは記事の内容を元に書く
-            3. **まとめ**（1段落）: 今週の総括
+            ★★★ 最重要：Markdownリンクについて ★★★
+            本文には必ず5個以上のMarkdownリンクを含めてください。
+            - 形式: [事実・出来事の説明](記事URL)
+            - 事実そのものをリンクテキストにする
+            - 良い例: [IBMが新しい量子プロセッサを発表し史上最高のコヒレンス時間を達成](https://example.com/news)したことが報じられた。
+            - 悪い例: IBMが発表した。こちらの記事で詳しく述べられている。← リンクなしはNG
+            - 悪い例: [こちらの記事](URL)で詳しく ← メタ的表現はNG
 
-            【注意事項】
-            - 記事の内容を元に、読み応えのあるニュース記事を書いてください
-            - 技術用語は適度に使いつつ、分かりやすい表現を心がけてください
-            - 各ハイライトの最後に出典としてMarkdownリンク形式で記事を参照してください
-            - 出典の形式: （出典: [記事タイトル](URL)）のようにMarkdownリンクで記載
+            【本文の要件】
+            - 600〜800文字程度
+            - 具体的な企業名、製品名、技術名、数値を含める
+            - 「今週起きた具体的な出来事」だけを書く。将来の展望や予測は書かない
+            - 禁止表現：「期待が高まっている」「注目を集めている」「今後も〜」「可能性を示している」
+            - 事実ベース：「〜が〜を発表した」「〜で〜が実現した」「〜が〜%向上した」
+            - 箇条書きや見出しは使わず、流れるような文章で書く
+
             """;
 
         var messages = new List<ChatMessage>
         {
-            new SystemChatMessage("あなたはテクノロジーニュースライターです。JSON形式でのみ回答してください。"),
+            new SystemChatMessage("あなたはテクノロジーニュースライターです。JSON形式でのみ回答してください。本文には必ず複数のMarkdownリンク[テキスト](URL)を含めてください。"),
             new UserChatMessage(prompt)
         };
 
         var options = new ChatCompletionOptions
         {
             MaxOutputTokenCount = 4000,
-            Temperature = 0.7f
+            Temperature = 0.5f
         };
 
         try
@@ -236,7 +315,7 @@ public class WeeklySummaryService : IWeeklySummaryService
             _logger.LogError(ex, "Failed to generate summary with Azure OpenAI");
         }
 
-        return GenerateFallbackSummary(keywordTerm, articles);
+        return GenerateFallbackSummary(keywordTerm, categoryArticles);
     }
 
     private SummaryResponse? ParseSummaryResponse(string content)
@@ -271,23 +350,25 @@ public class WeeklySummaryService : IWeeklySummaryService
         return content.Trim();
     }
 
-    private static (string Title, string Content) GenerateFallbackSummary(string keywordTerm, List<Article> articles)
+    private static (string Title, string Content) GenerateFallbackSummary(string keywordTerm, CategoryArticles categoryArticles)
     {
-        var title = $"{keywordTerm}：今週のまとめ";
+        var totalCount = categoryArticles.News.Count + categoryArticles.Tech.Count + categoryArticles.Academic.Count;
+        var title = $"{keywordTerm}：今週の動向";
         var sb = new StringBuilder();
-        sb.AppendLine($"## {keywordTerm} 今週のニュース");
-        sb.AppendLine();
-        sb.AppendLine($"今週は{articles.Count}件の関連記事が収集されました。");
-        sb.AppendLine();
-        sb.AppendLine("### 注目の記事");
+        sb.AppendLine($"今週は{totalCount}件の関連記事が収集されました。");
         sb.AppendLine();
 
-        foreach (var article in articles.Take(5))
+        if (categoryArticles.News.Any())
         {
-            var summary = !string.IsNullOrEmpty(article.SummaryJa) ? article.SummaryJa : article.Summary;
-            sb.AppendLine($"- **[{article.Title}]({article.Url})**");
-            sb.AppendLine($"  - {summary}");
-            sb.AppendLine();
+            sb.AppendLine($"ニュース分野では{categoryArticles.News.Count}件の記事があり、最新の動向が報じられています。");
+        }
+        if (categoryArticles.Tech.Any())
+        {
+            sb.AppendLine($"技術記事では{categoryArticles.Tech.Count}件の投稿があり、実践的な知見が共有されています。");
+        }
+        if (categoryArticles.Academic.Any())
+        {
+            sb.AppendLine($"研究分野では{categoryArticles.Academic.Count}件の論文が注目を集めています。");
         }
 
         return (title, sb.ToString());

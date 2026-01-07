@@ -1,35 +1,85 @@
+@page "/top10"
 @page "/weekly-summary"
 @rendermode InteractiveServer
 @using QInfoRanker.Core.Entities
+@using QInfoRanker.Core.Enums
 @using Markdig
-@inject IWeeklySummaryService SummaryService
+@inject IArticleService ArticleService
 @inject IKeywordService KeywordService
+@inject IWeeklySummaryService SummaryService
 
-<PageTitle>Weekly Summary - QInfoRanker</PageTitle>
+<PageTitle>今週のまとめ - QInfoRanker</PageTitle>
 
 <style>
-    .summary-content {
-        line-height: 1.8;
-        font-size: 1rem;
+    .category-column {
+        min-height: 400px;
     }
-    .summary-content h2 {
-        font-size: 1.5rem;
-        margin-top: 1.5rem;
-        margin-bottom: 1rem;
+    .category-header {
+        border-bottom: 3px solid;
         padding-bottom: 0.5rem;
-        border-bottom: 2px solid #dee2e6;
-    }
-    .summary-content h3 {
-        font-size: 1.25rem;
-        margin-top: 1.25rem;
-        margin-bottom: 0.75rem;
-        color: #495057;
-    }
-    .summary-content ul, .summary-content ol {
         margin-bottom: 1rem;
     }
-    .summary-content li {
-        margin-bottom: 0.5rem;
+    .category-news .category-header { border-color: #dc3545; }
+    .category-tech .category-header { border-color: #0d6efd; }
+    .category-academic .category-header { border-color: #198754; }
+
+    .trend-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-bottom: 1rem;
+    }
+    .trend-tag {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 1rem;
+        background-color: #f8f9fa;
+        color: #495057;
+        border: 1px solid #dee2e6;
+    }
+
+    .article-item {
+        padding: 0.75rem 0;
+        border-bottom: 1px solid #eee;
+    }
+    .article-item:last-child {
+        border-bottom: none;
+    }
+    .article-item:hover {
+        background-color: #f8f9fa;
+        margin: 0 -0.5rem;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+    .article-rank {
+        font-weight: bold;
+        color: #6c757d;
+        min-width: 1.5rem;
+    }
+    .article-title {
+        font-size: 0.9rem;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .article-meta {
+        font-size: 0.75rem;
+        color: #6c757d;
+    }
+    .article-score {
+        font-weight: bold;
+        color: #0d6efd;
+    }
+
+    .summary-card {
+        border-left: 4px solid #0d6efd;
+        background: linear-gradient(135deg, #f8f9fa, #ffffff);
+    }
+    .summary-content {
+        font-size: 0.9rem;
+        line-height: 1.6;
     }
     .summary-content a {
         color: #0d6efd;
@@ -38,40 +88,119 @@
     .summary-content a:hover {
         text-decoration: underline;
     }
-    .summary-meta {
-        font-size: 0.875rem;
+    .summary-content h2, .summary-content h3 {
+        font-size: 1rem;
+        margin-top: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
+    .summary-content ul, .summary-content ol {
+        margin-bottom: 0.5rem;
+        padding-left: 1.25rem;
+    }
+    .summary-content li {
+        margin-bottom: 0.25rem;
+    }
+    .summary-content p {
+        margin-bottom: 0.5rem;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
         color: #6c757d;
     }
-    .summary-card {
-        transition: box-shadow 0.2s ease;
-    }
-    .summary-card:hover {
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    .past-summary-item {
-        cursor: pointer;
-        transition: background-color 0.2s ease;
-    }
-    .past-summary-item:hover {
-        background-color: #f8f9fa;
-    }
-</style>
 
-<h1>Weekly Summary</h1>
+    </style>
 
-<div class="row mb-4">
-    <div class="col-md-4">
-        <label class="form-label">Keyword</label>
-        <select class="form-select" @onchange="OnKeywordChanged">
-            <option value="">-- Select Keyword --</option>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">今週のまとめ</h1>
+    <div class="d-flex align-items-center gap-2">
+        <select class="form-select form-select-sm" style="width: auto;" @bind="selectedKeywordId" @bind:after="LoadAll">
+            <option value="">すべてのキーワード</option>
             @foreach (var keyword in keywords)
             {
-                <option value="@keyword.Id" selected="@(selectedKeywordId == keyword.Id)">@keyword.Term</option>
+                <option value="@keyword.Id">@keyword.Term</option>
             }
         </select>
     </div>
 </div>
 
+<p class="text-muted small mb-3">
+    @weekStart.ToString("M/d") 〜 @weekEnd.ToString("M/d") の注目記事
+</p>
+
+@* 統合サマリーセクション *@
+@if (selectedKeywordId.HasValue)
+{
+    @if (isLoadingSummary)
+    {
+        <div class="card summary-card mb-4">
+            <div class="card-body text-center py-3">
+                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                サマリーを読み込み中...
+            </div>
+        </div>
+    }
+    else if (currentSummary != null)
+    {
+        <div class="card summary-card mb-4">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h5 class="card-title mb-0">@currentSummary.Title</h5>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="RegenerateSummary" disabled="@isGenerating" title="サマリーを再生成">
+                        @if (isGenerating)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        }
+                        else
+                        {
+                            <span>🔄</span>
+                        }
+                    </button>
+                </div>
+                <div class="summary-content">
+                    @((MarkupString)RenderMarkdown(currentSummary.Content))
+                </div>
+                <div class="mt-2 small text-muted">
+                    @currentSummary.ArticleCount 件の記事を参照 | 生成: @currentSummary.GeneratedAt.ToLocalTime().ToString("M/d HH:mm")
+                </div>
+                @if (!string.IsNullOrEmpty(generateError))
+                {
+                    <div class="alert alert-danger mt-2 mb-0 py-2 small">@generateError</div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card summary-card mb-4">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="text-muted">
+                        このキーワードの週間サマリーはまだありません
+                    </span>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="GenerateSummary" disabled="@isGenerating">
+                        @if (isGenerating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>生成中...</span>
+                        }
+                        else
+                        {
+                            <span>サマリーを生成</span>
+                        }
+                    </button>
+                </div>
+                @if (!string.IsNullOrEmpty(generateError))
+                {
+                    <div class="alert alert-danger mt-2 mb-0 py-2 small">@generateError</div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@* 3カラムレイアウト *@
 @if (isLoading)
 {
     <div class="text-center py-5">
@@ -80,142 +209,195 @@
         </div>
     </div>
 }
-else if (selectedKeywordId == null)
+else
 {
-    <div class="alert alert-info">
-        <i class="bi bi-info-circle me-2"></i>
-        Select a keyword to view the weekly summary.
-    </div>
-}
-else if (currentSummary == null)
-{
-    <div class="alert alert-warning">
-        <i class="bi bi-exclamation-triangle me-2"></i>
-        No weekly summary is available for this keyword yet.
-        <br><small class="text-muted">Summaries are automatically generated when article collection completes.</small>
+    <div class="row">
+        @* ニュースカラム *@
+        <div class="col-lg-4 mb-4">
+            <div class="category-column category-news">
+                <div class="category-header d-flex align-items-center gap-2">
+                    <span style="font-size: 1.25rem;">📰</span>
+                    <h5 class="mb-0">ニュース</h5>
+                    <small class="text-muted ms-auto">@newsArticles.Count()件</small>
+                </div>
 
-        <div class="mt-3">
-            <button class="btn btn-primary" @onclick="GenerateSummary" disabled="@isGenerating">
-                @if (isGenerating)
+                @if (newsTrendTags.Any())
                 {
-                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    <span>Generating...</span>
+                    <div class="trend-tags">
+                        @foreach (var tag in newsTrendTags)
+                        {
+                            <span class="trend-tag">#@tag</span>
+                        }
+                    </div>
+                }
+
+                @if (!newsArticles.Any())
+                {
+                    <div class="empty-state">
+                        <p class="mb-0">今週のニュースはありません</p>
+                    </div>
                 }
                 else
                 {
-                    <i class="bi bi-magic me-2"></i>
-                    <span>Generate Summary Now (Debug)</span>
+                    var newsRank = 0;
+                    foreach (var article in newsArticles)
+                    {
+                        newsRank++;
+                        <div class="article-item" @key="article.Id">
+                            <div class="d-flex gap-2">
+                                <span class="article-rank">@newsRank.</span>
+                                <div class="flex-grow-1">
+                                    <a href="@article.Url" target="_blank"
+                                       class="article-title text-decoration-none d-block"
+                                       title="@GetTooltipText(article)">
+                                        @article.Title
+                                    </a>
+                                    <div class="article-meta d-flex gap-2 mt-1">
+                                        <span>@article.Source.Name</span>
+                                        @if (article.PublishedAt.HasValue)
+                                        {
+                                            <span>@article.PublishedAt.Value.ToString("M/d")</span>
+                                        }
+                                        <span class="article-score ms-auto">@article.FinalScore.ToString("F0")点</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 }
-            </button>
+            </div>
         </div>
 
-        @if (!string.IsNullOrEmpty(generateError))
-        {
-            <div class="alert alert-danger mt-3 mb-0">
-                <i class="bi bi-exclamation-circle me-2"></i>
-                @generateError
-            </div>
-        }
-    </div>
-}
-else
-{
-    <div class="card summary-card mb-4">
-        <div class="card-header bg-primary text-white">
-            <div class="d-flex justify-content-between align-items-center">
-                <h4 class="mb-0">@currentSummary.Title</h4>
-                <span class="badge bg-light text-dark">
-                    @currentSummary.WeekStart.ToString("M/d") - @currentSummary.WeekEnd.ToString("M/d")
-                </span>
-            </div>
-        </div>
-        <div class="card-body">
-            <div class="summary-meta mb-3">
-                <span class="me-3">
-                    <i class="bi bi-file-text me-1"></i>
-                    @currentSummary.ArticleCount articles referenced
-                </span>
-                <span>
-                    <i class="bi bi-clock me-1"></i>
-                    Generated: @currentSummary.GeneratedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")
-                </span>
-            </div>
-            <hr />
-            <div class="summary-content">
-                @((MarkupString)RenderMarkdown(currentSummary.Content))
-            </div>
-        </div>
-    </div>
-}
-
-@* Debug Tools Section *@
-@if (selectedKeywordId != null)
-{
-    <div class="card border-warning mt-4">
-        <div class="card-header bg-warning text-dark">
-            <i class="bi bi-tools me-2"></i>Debug Tools
-        </div>
-        <div class="card-body">
-            <div class="d-flex align-items-center gap-3 flex-wrap">
-                <span class="text-muted">
-                    <i class="bi bi-journal-text me-1"></i>
-                    Summaries: <strong>@summaryCount</strong>
-                </span>
-                <button class="btn btn-outline-danger btn-sm" @onclick="DeleteSummaries" disabled="@isDeleting">
-                    @if (isDeleting)
-                    {
-                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                        <span>Deleting...</span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-trash me-1"></i>
-                        <span>Delete All Summaries (Debug)</span>
-                    }
-                </button>
-            </div>
-            @if (!string.IsNullOrEmpty(deleteMessage))
-            {
-                <div class="alert @(deleteMessage.Contains("エラー") ? "alert-danger" : "alert-success") mt-3 mb-0">
-                    @deleteMessage
+        @* 技術記事カラム *@
+        <div class="col-lg-4 mb-4">
+            <div class="category-column category-tech">
+                <div class="category-header d-flex align-items-center gap-2">
+                    <span style="font-size: 1.25rem;">💻</span>
+                    <h5 class="mb-0">技術記事</h5>
+                    <small class="text-muted ms-auto">@techArticles.Count()件</small>
                 </div>
-            }
-        </div>
-    </div>
-}
 
-@if (pastSummaries.Any())
-{
-    <h3 class="mt-5 mb-3">Past Summaries</h3>
-    <div class="list-group">
-        @foreach (var summary in pastSummaries)
-        {
-            <div class="list-group-item past-summary-item d-flex justify-content-between align-items-center"
-                 @onclick="() => SelectSummary(summary)">
-                <div>
-                    <h6 class="mb-1">@summary.Title</h6>
-                    <small class="text-muted">
-                        @summary.WeekStart.ToString("M/d") - @summary.WeekEnd.ToString("M/d")
-                        (@summary.ArticleCount articles)
-                    </small>
-                </div>
-                <span class="badge bg-secondary">@summary.Keyword?.Term</span>
+                @if (techTrendTags.Any())
+                {
+                    <div class="trend-tags">
+                        @foreach (var tag in techTrendTags)
+                        {
+                            <span class="trend-tag">#@tag</span>
+                        }
+                    </div>
+                }
+
+                @if (!techArticles.Any())
+                {
+                    <div class="empty-state">
+                        <p class="mb-0">今週の技術記事はありません</p>
+                    </div>
+                }
+                else
+                {
+                    var techRank = 0;
+                    foreach (var article in techArticles)
+                    {
+                        techRank++;
+                        <div class="article-item" @key="article.Id">
+                            <div class="d-flex gap-2">
+                                <span class="article-rank">@techRank.</span>
+                                <div class="flex-grow-1">
+                                    <a href="@article.Url" target="_blank"
+                                       class="article-title text-decoration-none d-block"
+                                       title="@GetTooltipText(article)">
+                                        @article.Title
+                                    </a>
+                                    <div class="article-meta d-flex gap-2 mt-1">
+                                        <span>@article.Source.Name</span>
+                                        <span>@article.CollectedAt.ToString("M/d")</span>
+                                        <span class="article-score ms-auto">@article.FinalScore.ToString("F0")点</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
             </div>
-        }
+        </div>
+
+        @* 研究カラム *@
+        <div class="col-lg-4 mb-4">
+            <div class="category-column category-academic">
+                <div class="category-header d-flex align-items-center gap-2">
+                    <span style="font-size: 1.25rem;">📚</span>
+                    <h5 class="mb-0">研究</h5>
+                    <small class="text-muted ms-auto">@academicArticles.Count()件</small>
+                </div>
+
+                @if (academicTrendTags.Any())
+                {
+                    <div class="trend-tags">
+                        @foreach (var tag in academicTrendTags)
+                        {
+                            <span class="trend-tag">#@tag</span>
+                        }
+                    </div>
+                }
+
+                @if (!academicArticles.Any())
+                {
+                    <div class="empty-state">
+                        <p class="mb-0">今週の研究はありません</p>
+                    </div>
+                }
+                else
+                {
+                    var academicRank = 0;
+                    foreach (var article in academicArticles)
+                    {
+                        academicRank++;
+                        <div class="article-item" @key="article.Id">
+                            <div class="d-flex gap-2">
+                                <span class="article-rank">@academicRank.</span>
+                                <div class="flex-grow-1">
+                                    <a href="@article.Url" target="_blank"
+                                       class="article-title text-decoration-none d-block"
+                                       title="@GetTooltipText(article)">
+                                        @article.Title
+                                    </a>
+                                    <div class="article-meta d-flex gap-2 mt-1">
+                                        <span>@article.Source.Name</span>
+                                        <span>@article.CollectedAt.ToString("M/d")</span>
+                                        <span class="article-score ms-auto">@article.FinalScore.ToString("F0")点</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
     </div>
 }
 
 @code {
     private List<Keyword> keywords = new();
     private int? selectedKeywordId;
+    private bool isLoading = true;
+    private DateTime weekStart;
+    private DateTime weekEnd;
+
+    // カテゴリ別記事
+    private IEnumerable<Article> newsArticles = Enumerable.Empty<Article>();
+    private IEnumerable<Article> techArticles = Enumerable.Empty<Article>();
+    private IEnumerable<Article> academicArticles = Enumerable.Empty<Article>();
+
+    // トレンドタグ（後で実装）
+    private List<string> newsTrendTags = new();
+    private List<string> techTrendTags = new();
+    private List<string> academicTrendTags = new();
+
+    // サマリー関連
     private Core.Entities.WeeklySummary? currentSummary;
-    private List<Core.Entities.WeeklySummary> pastSummaries = new();
-    private bool isLoading = false;
+    private bool isLoadingSummary = false;
     private bool isGenerating = false;
     private string? generateError;
-    private bool isDeleting = false;
-    private string? deleteMessage;
-    private int summaryCount = 0;
 
     private static readonly MarkdownPipeline _markdownPipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
@@ -224,37 +406,30 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        CalculateWeekRange();
         keywords = (await KeywordService.GetActiveAsync()).ToList();
-        pastSummaries = (await SummaryService.GetSummariesAsync(null, 20)).ToList();
+        await LoadAll();
     }
 
-    private async Task OnKeywordChanged(ChangeEventArgs e)
+    private void CalculateWeekRange()
     {
-        if (int.TryParse(e.Value?.ToString(), out var keywordId))
-        {
-            selectedKeywordId = keywordId;
-            await LoadSummary();
-        }
-        else
-        {
-            selectedKeywordId = null;
-            currentSummary = null;
-        }
+        var today = DateTime.UtcNow.Date;
+        var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
+        weekStart = today.AddDays(-diff);
+        weekEnd = weekStart.AddDays(6);
     }
 
-    private async Task LoadSummary()
+    private async Task LoadAll()
     {
-        if (selectedKeywordId == null) return;
-
         isLoading = true;
-        deleteMessage = null;
         StateHasChanged();
 
         try
         {
-            currentSummary = await SummaryService.GetCurrentWeekSummaryAsync(selectedKeywordId.Value);
-            pastSummaries = (await SummaryService.GetSummariesAsync(selectedKeywordId.Value, 10)).ToList();
-            summaryCount = pastSummaries.Count;
+            await Task.WhenAll(
+                LoadCategoryArticles(),
+                LoadSummary()
+            );
         }
         finally
         {
@@ -263,15 +438,99 @@ else
         }
     }
 
-    private void SelectSummary(Core.Entities.WeeklySummary summary)
+    private async Task LoadCategoryArticles()
     {
-        currentSummary = summary;
-        selectedKeywordId = summary.KeywordId;
+        var newsTask = ArticleService.GetWeeklyByCategoryAsync(SourceCategory.News, selectedKeywordId, 10);
+        var techTask = ArticleService.GetWeeklyByCategoryAsync(SourceCategory.Technology, selectedKeywordId, 10);
+        var academicTask = ArticleService.GetWeeklyByCategoryAsync(SourceCategory.Academic, selectedKeywordId, 10);
+
+        await Task.WhenAll(newsTask, techTask, academicTask);
+
+        newsArticles = await newsTask;
+        techArticles = await techTask;
+        academicArticles = await academicTask;
+
+        // トレンドタグを抽出（シンプル版：タイトルから頻出単語を抽出）
+        newsTrendTags = ExtractSimpleTrendTags(newsArticles);
+        techTrendTags = ExtractSimpleTrendTags(techArticles);
+        academicTrendTags = ExtractSimpleTrendTags(academicArticles);
+    }
+
+    private List<string> ExtractSimpleTrendTags(IEnumerable<Article> articles)
+    {
+        if (!articles.Any()) return new List<string>();
+
+        // タイトルから単語を抽出し、頻出上位を返す（シンプル版）
+        var words = articles
+            .SelectMany(a => ExtractKeywords(a.Title))
+            .GroupBy(w => w)
+            .OrderByDescending(g => g.Count())
+            .Take(3)
+            .Select(g => g.Key)
+            .ToList();
+
+        return words;
+    }
+
+    private IEnumerable<string> ExtractKeywords(string title)
+    {
+        // 簡易的なキーワード抽出（英単語と日本語の一部を抽出）
+        var words = new List<string>();
+
+        // 英単語（3文字以上）
+        var englishPattern = new System.Text.RegularExpressions.Regex(@"\b[A-Za-z]{3,}\b");
+        var matches = englishPattern.Matches(title);
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            var word = match.Value;
+            // 一般的な単語は除外
+            if (!IsCommonWord(word))
+            {
+                words.Add(word);
+            }
+        }
+
+        return words;
+    }
+
+    private bool IsCommonWord(string word)
+    {
+        var commonWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "the", "and", "for", "with", "from", "that", "this", "are", "was", "were",
+            "have", "has", "had", "been", "being", "will", "would", "could", "should",
+            "can", "may", "might", "must", "shall", "into", "about", "over", "after",
+            "before", "under", "between", "through", "during", "without", "within",
+            "new", "how", "why", "what", "when", "where", "which", "who", "whom",
+            "using", "use", "used", "based", "make", "made", "get", "got", "set"
+        };
+        return commonWords.Contains(word);
+    }
+
+    private async Task LoadSummary()
+    {
+        if (!selectedKeywordId.HasValue)
+        {
+            currentSummary = null;
+            return;
+        }
+
+        isLoadingSummary = true;
+        generateError = null;
+
+        try
+        {
+            currentSummary = await SummaryService.GetCurrentWeekSummaryAsync(selectedKeywordId.Value);
+        }
+        finally
+        {
+            isLoadingSummary = false;
+        }
     }
 
     private async Task GenerateSummary()
     {
-        if (selectedKeywordId == null) return;
+        if (!selectedKeywordId.HasValue) return;
 
         isGenerating = true;
         generateError = null;
@@ -279,20 +538,11 @@ else
 
         try
         {
-            var summary = await SummaryService.GenerateSummaryAsync(selectedKeywordId.Value);
-            if (summary != null)
-            {
-                currentSummary = summary;
-                pastSummaries = (await SummaryService.GetSummariesAsync(selectedKeywordId.Value, 10)).ToList();
-            }
-            else
-            {
-                generateError = "サマリーの生成に失敗しました。対象となる記事が見つからない可能性があります。";
-            }
+            currentSummary = await SummaryService.GenerateSummaryAsync(selectedKeywordId.Value);
         }
         catch (Exception ex)
         {
-            generateError = $"エラーが発生しました: {ex.Message}";
+            generateError = $"生成エラー: {ex.Message}";
         }
         finally
         {
@@ -301,39 +551,33 @@ else
         }
     }
 
-    private async Task DeleteSummaries()
+    private async Task RegenerateSummary()
     {
-        if (selectedKeywordId == null) return;
-
-        isDeleting = true;
-        deleteMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            var deletedCount = await SummaryService.DeleteByKeywordAsync(selectedKeywordId.Value);
-            currentSummary = null;
-            pastSummaries.Clear();
-            summaryCount = 0;
-            deleteMessage = $"{deletedCount}件のサマリーを削除しました。";
-        }
-        catch (Exception ex)
-        {
-            deleteMessage = $"エラーが発生しました: {ex.Message}";
-        }
-        finally
-        {
-            isDeleting = false;
-            StateHasChanged();
-        }
+        // 既存サマリーがあっても再生成
+        await GenerateSummary();
     }
 
     private static string RenderMarkdown(string markdown)
     {
         if (string.IsNullOrEmpty(markdown)) return string.Empty;
         var html = Markdown.ToHtml(markdown, _markdownPipeline);
-        // 全てのリンクを新しいタブで開くように修正
         html = html.Replace("<a href=", "<a target=\"_blank\" rel=\"noopener noreferrer\" href=");
         return html;
+    }
+
+    private static string? GetTooltipText(Article article)
+    {
+        // 日本語要約があればそれを表示、なければnull
+        if (!string.IsNullOrEmpty(article.SummaryJa))
+        {
+            // 長すぎる場合は切り詰める
+            var text = article.SummaryJa;
+            if (text.Length > 150)
+            {
+                text = text[..150] + "...";
+            }
+            return text;
+        }
+        return null;
     }
 }

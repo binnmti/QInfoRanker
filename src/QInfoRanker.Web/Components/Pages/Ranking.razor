@@ -1,3 +1,4 @@
+@page "/articles"
 @page "/ranking"
 @rendermode InteractiveServer
 @using QInfoRanker.Core.Entities
@@ -9,7 +10,7 @@
 @inject NavigationManager Navigation
 @implements IDisposable
 
-<PageTitle>Ranking - QInfoRanker</PageTitle>
+<PageTitle>記事一覧 - QInfoRanker</PageTitle>
 
 <style>
     .article-item {
@@ -62,7 +63,7 @@
     }
 </style>
 
-<h1>Ranking</h1>
+<h1>記事一覧</h1>
 
 @* Collection status display - detailed progress *@
 @if (collectionStatuses.Any())
@@ -242,9 +243,9 @@
 
 <div class="row mb-3 g-2">
     <div class="col-md-2">
-        <label class="form-label">Keyword</label>
-        <select class="form-select form-select-sm" @bind="selectedKeywordId" @bind:after="LoadRanking">
-            <option value="">All</option>
+        <label class="form-label small">キーワード</label>
+        <select class="form-select form-select-sm" @bind="selectedKeywordId" @bind:after="ResetPageAndLoad">
+            <option value="">すべて</option>
             @if (keywords != null)
             {
                 @foreach (var kw in keywords)
@@ -255,17 +256,17 @@
         </select>
     </div>
     <div class="col-md-2">
-        <label class="form-label">Language</label>
-        <select class="form-select form-select-sm" @bind="selectedLanguage" @bind:after="LoadRanking">
-            <option value="">All</option>
-            <option value="Japanese">Japanese</option>
-            <option value="English">English</option>
+        <label class="form-label small">言語</label>
+        <select class="form-select form-select-sm" @bind="selectedLanguage" @bind:after="ResetPageAndLoad">
+            <option value="">すべて</option>
+            <option value="Japanese">日本語</option>
+            <option value="English">英語</option>
         </select>
     </div>
     <div class="col-md-2">
-        <label class="form-label">Source</label>
-        <select class="form-select form-select-sm" @bind="selectedSourceId" @bind:after="LoadRanking">
-            <option value="">All</option>
+        <label class="form-label small">ソース</label>
+        <select class="form-select form-select-sm" @bind="selectedSourceId" @bind:after="ResetPageAndLoad">
+            <option value="">すべて</option>
             @if (sources != null)
             {
                 @foreach (var src in sources)
@@ -276,32 +277,32 @@
         </select>
     </div>
     <div class="col-md-2">
-        <label class="form-label">Period</label>
-        <select class="form-select form-select-sm" @bind="selectedPeriod" @bind:after="LoadRanking">
-            <option value="day">Today</option>
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-            <option value="all">All Time</option>
+        <label class="form-label small">期間</label>
+        <select class="form-select form-select-sm" @bind="selectedPeriod" @bind:after="ResetPageAndLoad">
+            <option value="day">今日</option>
+            <option value="week">今週</option>
+            <option value="month">今月</option>
+            <option value="all">すべて</option>
         </select>
     </div>
     <div class="col-md-2">
-        <label class="form-label">Count</label>
-        <select class="form-select form-select-sm" @bind="topCount" @bind:after="LoadRanking">
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
+        <label class="form-label small">並び順</label>
+        <select class="form-select form-select-sm" @bind="sortBy" @bind:after="ResetPageAndLoad">
+            <option value="score">スコア順</option>
+            <option value="date">日付順</option>
+            <option value="native">人気順</option>
+            <option value="collected">収集順</option>
         </select>
     </div>
     <div class="col-md-2 d-flex align-items-end">
-        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadRanking" disabled="@isLoading">
+        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadArticles" disabled="@isLoading">
             @if (isLoading)
             {
                 <span class="spinner-border spinner-border-sm" role="status"></span>
             }
             else
             {
-                <span>Refresh</span>
+                <span>更新</span>
             }
         </button>
     </div>
@@ -309,29 +310,68 @@
 
 @if (isLoading && articles == null)
 {
-    <p>Loading...</p>
+    <p>読み込み中...</p>
 }
 else if (articles == null || !articles.Any())
 {
     <div class="alert alert-info">
-        No articles to rank. Click "Collect" on the <a href="/">Keywords</a> page to start collecting articles.
+        記事がありません。<a href="/">キーワード</a>ページで「収集」をクリックして記事を収集してください。
     </div>
 }
 else
 {
     var avgScore = articles.Any() ? articles.Average(a => a.FinalScore) : 0;
-    <div class="mb-2 text-muted small">
-        @articles.Count() 件 (平均: @avgScore.ToString("F1")点)
-        @if(lastUpdated.HasValue) { <span class="ms-2">更新: @lastUpdated.Value.ToString("HH:mm:ss")</span> }
+    <div class="mb-2 d-flex justify-content-between align-items-center">
+        <span class="text-muted small">
+            全 @totalCount 件中 @((currentPage - 1) * pageSize + 1)-@Math.Min(currentPage * pageSize, totalCount) 件表示
+            (平均: @avgScore.ToString("F1")点)
+            @if(lastUpdated.HasValue) { <span class="ms-2">更新: @lastUpdated.Value.ToString("HH:mm:ss")</span> }
+        </span>
+        <div class="d-flex align-items-center gap-2">
+            <label class="small text-muted mb-0">表示:</label>
+            <select class="form-select form-select-sm" style="width: auto;" @bind="pageSize" @bind:after="ResetPageAndLoad">
+                <option value="20">20件</option>
+                <option value="50">50件</option>
+                <option value="100">100件</option>
+            </select>
+        </div>
     </div>
+
+    @* ページング（上部） *@
+    @if (totalPages > 1)
+    {
+        <nav aria-label="Page navigation" class="mb-2">
+            <ul class="pagination pagination-sm justify-content-center mb-0">
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(currentPage == 1)">&laquo;</button>
+                </li>
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage == 1)">&lsaquo;</button>
+                </li>
+                @foreach (var pageNum in GetPageNumbers())
+                {
+                    <li class="page-item @(pageNum == currentPage ? "active" : "")">
+                        <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage == totalPages)">&rsaquo;</button>
+                </li>
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(totalPages)" disabled="@(currentPage == totalPages)">&raquo;</button>
+                </li>
+            </ul>
+        </nav>
+    }
+
     <div class="list-group">
-        @{ var rank = 1; }
+        @{ var displayIndex = (currentPage - 1) * pageSize + 1; }
         @foreach (var article in articles)
         {
             <div class="list-group-item article-item" @key="article.Id">
                 @* Title and link *@
                 <div class="d-flex align-items-start">
-                    <span class="badge bg-primary me-2">#@rank</span>
+                    <span class="badge bg-secondary me-2" style="min-width: 2.5rem;">@displayIndex</span>
                     <a href="@article.Url" target="_blank" class="fw-bold text-decoration-none">@article.Title</a>
                 </div>
 
@@ -382,13 +422,40 @@ else
                     {
                         <span class="text-secondary">(@article.Keyword.Aliases)</span>
                     }
-                    <span class="text-secondary">Collected: @article.CollectedAt.ToString("MM/dd HH:mm")</span>
+                    <span class="text-secondary">収集: @article.CollectedAt.ToString("MM/dd HH:mm")</span>
                 </div>
             </div>
 
-            rank++;
+            displayIndex++;
         }
     </div>
+
+    @* ページング（下部） *@
+    @if (totalPages > 1)
+    {
+        <nav aria-label="Page navigation" class="mt-3">
+            <ul class="pagination pagination-sm justify-content-center mb-0">
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(currentPage == 1)">&laquo;</button>
+                </li>
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage == 1)">&lsaquo;</button>
+                </li>
+                @foreach (var pageNum in GetPageNumbers())
+                {
+                    <li class="page-item @(pageNum == currentPage ? "active" : "")">
+                        <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage == totalPages)">&rsaquo;</button>
+                </li>
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                    <button class="page-link" @onclick="() => GoToPage(totalPages)" disabled="@(currentPage == totalPages)">&raquo;</button>
+                </li>
+            </ul>
+        </nav>
+    }
 }
 
 @code {
@@ -399,7 +466,11 @@ else
     private int? selectedSourceId;
     private string selectedLanguage = "";
     private string selectedPeriod = "week";
-    private int topCount = 50;
+    private string sortBy = "score";
+    private int pageSize = 20;
+    private int currentPage = 1;
+    private int totalCount = 0;
+    private int totalPages => (int)Math.Ceiling((double)totalCount / pageSize);
     private bool isLoading = true;
     private DateTime? lastUpdated;
     private List<CollectionStatus> collectionStatuses = new();
@@ -420,7 +491,7 @@ else
             selectedKeywordId = KeywordIdFromQuery;
         }
 
-        await LoadRanking();
+        await LoadArticles();
         UpdateCollectionStatuses();
 
         autoRefreshTimer = new Timer(async _ =>
@@ -431,7 +502,7 @@ else
 
                 if (collectionStatuses.Any())
                 {
-                    await LoadRanking();
+                    await LoadArticles();
                 }
 
                 StateHasChanged();
@@ -452,7 +523,7 @@ else
             .ToList();
     }
 
-    private async Task LoadRanking()
+    private async Task LoadArticles()
     {
         isLoading = true;
         StateHasChanged();
@@ -465,13 +536,14 @@ else
             _ => null
         };
 
-        var newArticles = await ArticleService.GetRankedAsync(selectedKeywordId, fromDate, null, topCount * 2);
+        // 全件取得してフィルタリング（APIを変更せずに対応）
+        var allArticles = await ArticleService.GetRankedAsync(selectedKeywordId, fromDate, null, int.MaxValue);
 
         // Apply language filter
         if (!string.IsNullOrEmpty(selectedLanguage))
         {
             var targetLang = Enum.Parse<Language>(selectedLanguage);
-            newArticles = newArticles.Where(a =>
+            allArticles = allArticles.Where(a =>
                 a.Source.Language == targetLang ||
                 a.Source.Language == Language.Both);
         }
@@ -479,17 +551,28 @@ else
         // Apply source filter
         if (selectedSourceId.HasValue)
         {
-            newArticles = newArticles.Where(a => a.SourceId == selectedSourceId.Value);
+            allArticles = allArticles.Where(a => a.SourceId == selectedSourceId.Value);
         }
 
         // Only show scored articles (filter out unscored)
-        newArticles = newArticles.Where(a => a.LlmScore.HasValue);
+        allArticles = allArticles.Where(a => a.LlmScore.HasValue);
 
-        // Sort by FinalScore desc
-        articles = newArticles
-            .OrderByDescending(a => a.FinalScore)
-            .ThenByDescending(a => a.CollectedAt)
-            .Take(topCount);
+        // Apply sorting
+        var sortedArticles = sortBy switch
+        {
+            "date" => allArticles.OrderByDescending(a => a.PublishedAt ?? a.CollectedAt),
+            "native" => allArticles.OrderByDescending(a => a.NativeScore ?? 0),
+            "collected" => allArticles.OrderByDescending(a => a.CollectedAt),
+            _ => allArticles.OrderByDescending(a => a.FinalScore).ThenByDescending(a => a.CollectedAt)
+        };
+
+        var articleList = sortedArticles.ToList();
+        totalCount = articleList.Count;
+
+        // ページング適用
+        articles = articleList
+            .Skip((currentPage - 1) * pageSize)
+            .Take(pageSize);
 
         // Track new articles for animation
         var currentIds = articles.Select(a => a.Id).ToHashSet();
@@ -497,6 +580,33 @@ else
 
         lastUpdated = DateTime.Now;
         isLoading = false;
+    }
+
+    private async Task ResetPageAndLoad()
+    {
+        currentPage = 1;
+        await LoadArticles();
+    }
+
+    private async Task GoToPage(int page)
+    {
+        if (page < 1 || page > totalPages) return;
+        currentPage = page;
+        await LoadArticles();
+    }
+
+    private IEnumerable<int> GetPageNumbers()
+    {
+        const int maxVisible = 5;
+        int start = Math.Max(1, currentPage - maxVisible / 2);
+        int end = Math.Min(totalPages, start + maxVisible - 1);
+
+        if (end - start + 1 < maxVisible)
+        {
+            start = Math.Max(1, end - maxVisible + 1);
+        }
+
+        return Enumerable.Range(start, end - start + 1);
     }
 
     private string GetStatusText(CollectionState state) => state switch

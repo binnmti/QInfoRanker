@@ -1,5 +1,7 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using QInfoRanker.Core.Entities;
+using QInfoRanker.Core.Enums;
 using QInfoRanker.Core.Interfaces.Services;
 using QInfoRanker.Infrastructure.Data;
 
@@ -64,6 +66,55 @@ public class ArticleService : IArticleService
             .OrderByDescending(a => a.FinalScore)
             .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IEnumerable<Article>> GetWeeklyByCategoryAsync(
+        SourceCategory category,
+        int? keywordId = null,
+        int take = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var (weekStart, weekEnd) = GetCurrentWeekRange();
+
+        var query = _context.Articles
+            .AsNoTracking()
+            .Include(a => a.Source)
+            .Include(a => a.Keyword)
+            .Where(a => a.Source.Category == category)
+            .Where(a => a.IsRelevant == true)
+            .Where(a => a.LlmScore.HasValue);
+
+        if (keywordId.HasValue)
+        {
+            query = query.Where(a => a.KeywordId == keywordId.Value);
+        }
+
+        // Newsカテゴリは公開日基準、その他は収集日基準
+        if (category == SourceCategory.News)
+        {
+            query = query.Where(a => a.PublishedAt.HasValue &&
+                                     a.PublishedAt.Value >= weekStart &&
+                                     a.PublishedAt.Value <= weekEnd);
+        }
+        else
+        {
+            query = query.Where(a => a.CollectedAt >= weekStart && a.CollectedAt <= weekEnd);
+        }
+
+        return await query
+            .OrderByDescending(a => a.FinalScore)
+            .ThenByDescending(a => a.CollectedAt)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()
+    {
+        var today = DateTime.UtcNow.Date;
+        var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
+        var weekStart = today.AddDays(-diff);
+        var weekEnd = weekStart.AddDays(6).AddHours(23).AddMinutes(59).AddSeconds(59);
+        return (weekStart, weekEnd);
     }
 
     public async Task<Article?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
