@@ -2,7 +2,7 @@ using System.ClientModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Azure.AI.OpenAI;
+using OpenAI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using OpenAI.Chat;
@@ -38,9 +38,16 @@ public class WeeklySummaryIntegrationTests : IDisposable
 
         if (!string.IsNullOrEmpty(openAIOptions.Endpoint) && !string.IsNullOrEmpty(openAIOptions.ApiKey))
         {
-            var client = new AzureOpenAIClient(
-                new Uri(openAIOptions.Endpoint),
-                new ApiKeyCredential(openAIOptions.ApiKey));
+            var baseEndpoint = openAIOptions.Endpoint.TrimEnd('/');
+            var v1Endpoint = new Uri($"{baseEndpoint}/openai/v1");
+            var credential = new ApiKeyCredential(openAIOptions.ApiKey);
+
+            var clientOptions = new OpenAIClientOptions
+            {
+                Endpoint = v1Endpoint
+            };
+
+            var client = new OpenAIClient(credential, clientOptions);
             _chatClient = client.GetChatClient(openAIOptions.DeploymentName);
         }
     }

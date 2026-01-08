@@ -1,16 +1,18 @@
 using System.ClientModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Azure.AI.OpenAI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OpenAI;
 using OpenAI.Chat;
 using QInfoRanker.Core.Entities;
 using QInfoRanker.Core.Enums;
 using QInfoRanker.Core.Interfaces.Services;
 using QInfoRanker.Infrastructure.Data;
 using QInfoRanker.Infrastructure.Scoring;
+
+#pragma warning disable OPENAI001 // Type is for evaluation purposes only
 
 namespace QInfoRanker.Infrastructure.Services;
 
@@ -19,7 +21,6 @@ public class SourceRecommendationService : ISourceRecommendationService
     private readonly AppDbContext _context;
     private readonly AzureOpenAIOptions _openAIOptions;
     private readonly ILogger<SourceRecommendationService> _logger;
-    private readonly AzureOpenAIClient? _client;
     private readonly ChatClient? _chatClient;
 
     public SourceRecommendationService(
@@ -33,10 +34,17 @@ public class SourceRecommendationService : ISourceRecommendationService
 
         if (!string.IsNullOrEmpty(_openAIOptions.Endpoint) && !string.IsNullOrEmpty(_openAIOptions.ApiKey))
         {
-            _client = new AzureOpenAIClient(
-                new Uri(_openAIOptions.Endpoint),
-                new ApiKeyCredential(_openAIOptions.ApiKey));
-            _chatClient = _client.GetChatClient(_openAIOptions.DeploymentName);
+            var baseEndpoint = _openAIOptions.Endpoint.TrimEnd('/');
+            var v1Endpoint = new Uri($"{baseEndpoint}/openai/v1");
+            var credential = new ApiKeyCredential(_openAIOptions.ApiKey);
+
+            var clientOptions = new OpenAIClientOptions
+            {
+                Endpoint = v1Endpoint
+            };
+
+            var openAIClient = new OpenAIClient(credential, clientOptions);
+            _chatClient = openAIClient.GetChatClient(_openAIOptions.DeploymentName);
         }
     }
 
@@ -107,21 +115,31 @@ public class SourceRecommendationService : ISourceRecommendationService
             }
             """;
 
+        var systemPrompt = "あなたはキーワード分析の専門家です。JSON形式でのみ回答してください。";
         var messages = new List<ChatMessage>
         {
-            new SystemChatMessage("あなたはキーワード分析の専門家です。JSON形式でのみ回答してください。"),
+            new SystemChatMessage(systemPrompt),
             new UserChatMessage(prompt)
         };
 
-        var options = new ChatCompletionOptions
+        var options = new ChatCompletionOptions();
+
+        // 推論モデルでなければ Temperature を設定
+        if (!ModelCapabilities.IsReasoningModel(_openAIOptions.DeploymentName))
         {
-            MaxOutputTokenCount = 300,
-            Temperature = 0.3f
-        };
+            options.Temperature = 0.3f;
+        }
+        else
+        {
+            options.ReasoningEffortLevel = ChatReasoningEffortLevel.Low;
+        }
 
-        var response = await _chatClient!.CompleteChatAsync(messages, options, cancellationToken);
+        var response = await _chatClient!.CompleteChatAsync(
+            messages: messages,
+            options: options,
+            cancellationToken: cancellationToken);
+
         var content = response.Value.Content[0].Text;
-
         return ParseKeywordAnalysis(content);
     }
 

@@ -120,11 +120,52 @@ public static class ModelCapabilities
         => IsReasoningModel(deploymentName);
 
     /// <summary>
+    /// Codexモデルのパターン
+    /// これらのモデルはResponses APIを使用する必要がある（Chat Completion APIは使用不可）
+    /// </summary>
+    private static readonly string[] CodexModelPatterns = new[]
+    {
+        "codex",            // codex, codex-mini
+        "gpt-5-codex",      // gpt-5-codex
+        "gpt-5.1-codex",    // gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.1-codex-max
+        "gpt-5.2-codex",    // future codex models
+    };
+
+    /// <summary>
+    /// 指定されたデプロイメント名がResponses APIを必要とするかどうかを判定
+    /// Codexモデル系はChat Completion APIをサポートしない
+    /// </summary>
+    /// <param name="deploymentName">Azure OpenAI のデプロイメント名</param>
+    /// <returns>Responses APIが必要な場合 true</returns>
+    public static bool RequiresResponsesApi(string deploymentName)
+    {
+        if (string.IsNullOrWhiteSpace(deploymentName))
+            return false;
+
+        var normalized = deploymentName.ToLowerInvariant().Trim();
+
+        foreach (var pattern in CodexModelPatterns)
+        {
+            if (normalized.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Chat Completion APIをサポートするか
+    /// </summary>
+    public static bool SupportsChatCompletionApi(string deploymentName)
+        => !RequiresResponsesApi(deploymentName);
+
+    /// <summary>
     /// モデルの機能サマリを取得（デバッグ・ログ用）
     /// </summary>
     public static ModelCapabilitySummary GetCapabilitySummary(string deploymentName)
     {
         var isReasoning = IsReasoningModel(deploymentName);
+        var requiresResponses = RequiresResponsesApi(deploymentName);
         return new ModelCapabilitySummary
         {
             DeploymentName = deploymentName,
@@ -134,6 +175,7 @@ public static class ModelCapabilities
             SupportsTopP = !isReasoning,
             SupportsPenalties = !isReasoning,
             SupportsReasoningEffort = isReasoning,
+            RequiresResponsesApi = requiresResponses,
             TokenLimitParameterName = isReasoning ? "max_completion_tokens" : "max_tokens"
         };
     }
@@ -200,11 +242,13 @@ public class ModelCapabilitySummary
     public bool SupportsTopP { get; set; }
     public bool SupportsPenalties { get; set; }
     public bool SupportsReasoningEffort { get; set; }
+    public bool RequiresResponsesApi { get; set; }
     public string TokenLimitParameterName { get; set; } = "max_tokens";
 
     public override string ToString()
     {
         var type = IsReasoningModel ? "Reasoning" : "Standard";
-        return $"{DeploymentName} ({type}): temp={SupportsTemperature}, maxTokens={SupportsMaxTokens}, reasoning={SupportsReasoningEffort}";
+        var api = RequiresResponsesApi ? "Responses" : "ChatCompletion";
+        return $"{DeploymentName} ({type}, {api}): temp={SupportsTemperature}, maxTokens={SupportsMaxTokens}, reasoning={SupportsReasoningEffort}";
     }
 }

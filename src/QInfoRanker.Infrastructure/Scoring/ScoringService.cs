@@ -2,12 +2,16 @@ using System.ClientModel;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Azure.AI.OpenAI;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OpenAI;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using QInfoRanker.Core.Entities;
 using QInfoRanker.Core.Interfaces.Services;
+
+#pragma warning disable OPENAI001 // Type is for evaluation purposes only
 
 namespace QInfoRanker.Infrastructure.Scoring;
 
@@ -18,12 +22,20 @@ public class ScoringService : IScoringService
     private readonly BatchScoringOptions _batchOptions;
     private readonly EnsembleScoringOptions _ensembleOptions;
     private readonly ILogger<ScoringService> _logger;
-    private readonly AzureOpenAIClient? _client;
+
+    // v1 API用のOpenAIClient
+    private readonly OpenAIClient? _openAIClient;
+
+    // Chat Completion API 用クライアント（v1 APIエンドポイント）
     private readonly ChatClient? _chatClient;
 
-    // アンサンブル評価用のJudge別クライアント
-    private readonly Dictionary<string, ChatClient> _judgeClients = new();
-    private ChatClient? _metaJudgeClient;
+    // v1 API用のエンドポイントとAPIキー（Judge用に保持）
+    private readonly Uri? _v1Endpoint;
+    private readonly ApiKeyCredential? _credential;
+
+    // アンサンブル評価用のJudge別AIAgent（モデルに応じてChat/Responses APIを自動選択）
+    private readonly Dictionary<string, AIAgent> _judgeAgents = new();
+    private AIAgent? _metaJudgeAgent;
 
     public ScoringService(
         IOptions<AzureOpenAIOptions> openAIOptions,
@@ -40,34 +52,48 @@ public class ScoringService : IScoringService
 
         if (!string.IsNullOrEmpty(_openAIOptions.Endpoint) && !string.IsNullOrEmpty(_openAIOptions.ApiKey))
         {
-            // o3-mini等の新モデルには2024-12-01-preview以降が必要
-            var clientOptions = new AzureOpenAIClientOptions(AzureOpenAIClientOptions.ServiceVersion.V2024_12_01_Preview);
-            _client = new AzureOpenAIClient(
-                new Uri(_openAIOptions.Endpoint),
-                new ApiKeyCredential(_openAIOptions.ApiKey),
-                clientOptions);
-            _chatClient = _client.GetChatClient(_openAIOptions.DeploymentName);
+            // v1 API エンドポイント（APIバージョン指定不要）
+            var baseEndpoint = _openAIOptions.Endpoint.TrimEnd('/');
+            _v1Endpoint = new Uri($"{baseEndpoint}/openai/v1");
+            _credential = new ApiKeyCredential(_openAIOptions.ApiKey);
 
-            // 常にアンサンブル評価用クライアントを初期化
-            InitializeEnsembleClients();
+            var clientOptions = new OpenAIClientOptions
+            {
+                Endpoint = _v1Endpoint
+            };
+
+            // OpenAIClient を作成し、Chat Completion API クライアントを取得
+            _openAIClient = new OpenAIClient(_credential, clientOptions);
+            _chatClient = _openAIClient.GetChatClient(_openAIOptions.DeploymentName);
+
+            _logger.LogInformation("Initialized Chat Completion API client: {DeploymentName} at {Endpoint}",
+                _openAIOptions.DeploymentName, _v1Endpoint);
+
+            // 常にアンサンブル評価用AIAgentを初期化
+            InitializeEnsembleAgents();
         }
     }
 
-    private void InitializeEnsembleClients()
+    private void InitializeEnsembleAgents()
     {
-        if (_client == null) return;
+        if (_openAIClient == null) return;
 
         foreach (var judge in _ensembleOptions.Judges.Where(j => j.IsEnabled))
         {
             try
             {
-                _judgeClients[judge.JudgeId] = _client.GetChatClient(judge.DeploymentName);
-                _logger.LogInformation("Initialized Judge client: {JudgeId} ({DeploymentName})",
-                    judge.JudgeId, judge.DeploymentName);
+                var agent = CreateAgentForModel(judge.DeploymentName, judge.JudgeId);
+                if (agent != null)
+                {
+                    _judgeAgents[judge.JudgeId] = agent;
+                    var apiType = ModelCapabilities.RequiresResponsesApi(judge.DeploymentName) ? "Responses" : "ChatCompletion";
+                    _logger.LogInformation("Initialized Judge Agent: {JudgeId} ({DeploymentName}) using {ApiType} API",
+                        judge.JudgeId, judge.DeploymentName, apiType);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to initialize Judge client: {JudgeId}", judge.JudgeId);
+                _logger.LogWarning(ex, "Failed to initialize Judge Agent: {JudgeId}", judge.JudgeId);
             }
         }
 
@@ -75,14 +101,44 @@ public class ScoringService : IScoringService
         {
             try
             {
-                _metaJudgeClient = _client.GetChatClient(_ensembleOptions.MetaJudge.DeploymentName);
-                _logger.LogInformation("Initialized Meta-Judge client: {DeploymentName}",
-                    _ensembleOptions.MetaJudge.DeploymentName);
+                _metaJudgeAgent = CreateAgentForModel(_ensembleOptions.MetaJudge.DeploymentName, "MetaJudge");
+                if (_metaJudgeAgent != null)
+                {
+                    var apiType = ModelCapabilities.RequiresResponsesApi(_ensembleOptions.MetaJudge.DeploymentName) ? "Responses" : "ChatCompletion";
+                    _logger.LogInformation("Initialized Meta-Judge Agent: {DeploymentName} using {ApiType} API",
+                        _ensembleOptions.MetaJudge.DeploymentName, apiType);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to initialize Meta-Judge client");
+                _logger.LogWarning(ex, "Failed to initialize Meta-Judge Agent");
             }
+        }
+    }
+
+    /// <summary>
+    /// モデルに応じて適切なAIAgentを作成
+    /// CodexモデルはResponses API、それ以外はChat Completion APIを使用
+    /// </summary>
+    private AIAgent? CreateAgentForModel(string deploymentName, string agentName)
+    {
+        if (_openAIClient == null) return null;
+
+        if (ModelCapabilities.RequiresResponsesApi(deploymentName))
+        {
+            // Codexモデル: Responses APIを使用
+            var responsesClient = _openAIClient.GetResponsesClient(deploymentName);
+            return responsesClient.CreateAIAgent(
+                instructions: "You are an expert evaluator. Respond only with valid JSON.",
+                name: agentName);
+        }
+        else
+        {
+            // 通常モデル: Chat Completion APIを使用
+            var chatClient = _openAIClient.GetChatClient(deploymentName);
+            return chatClient.CreateAIAgent(
+                instructions: "You are an expert evaluator. Respond only with valid JSON.",
+                name: agentName);
         }
     }
 
@@ -107,13 +163,23 @@ public class ScoringService : IScoringService
                 new UserChatMessage(prompt)
             };
 
-            var options = new ChatCompletionOptions
-            {
-                MaxOutputTokenCount = _openAIOptions.MaxTokens,
-                Temperature = _openAIOptions.Temperature
-            };
+            var options = new ChatCompletionOptions();
 
-            var response = await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
+            // 推論モデルでなければ Temperature を設定、推論モデルは ReasoningEffortLevel を使用
+            if (!ModelCapabilities.IsReasoningModel(_openAIOptions.DeploymentName))
+            {
+                options.Temperature = _openAIOptions.Temperature;
+            }
+            else
+            {
+                options.ReasoningEffortLevel = ChatReasoningEffortLevel.Low;
+            }
+
+            var response = await _chatClient.CompleteChatAsync(
+                messages: messages,
+                options: options,
+                cancellationToken: cancellationToken);
+
             var content = response.Value.Content[0].Text;
 
             var scores = ParseScores(content);
@@ -209,14 +275,20 @@ public class ScoringService : IScoringService
                 new UserChatMessage("Reply with 'OK' only.")
             };
 
-            var options = new ChatCompletionOptions
-            {
-                MaxOutputTokenCount = 10,
-                Temperature = 0
-            };
+            var options = new ChatCompletionOptions();
 
-            var response = await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
-            return response.Value.Content.Count > 0;
+            // 推論モデルでなければ Temperature を設定
+            if (!ModelCapabilities.IsReasoningModel(_openAIOptions.DeploymentName))
+            {
+                options.Temperature = 0;
+            }
+
+            var response = await _chatClient.CompleteChatAsync(
+                messages: messages,
+                options: options,
+                cancellationToken: cancellationToken);
+
+            return !string.IsNullOrEmpty(response.Value.Content[0].Text);
         }
         catch (Exception ex)
         {
@@ -594,18 +666,25 @@ public class ScoringService : IScoringService
             new UserChatMessage(prompt)
         };
 
-        var options = new ChatCompletionOptions
-        {
-            MaxOutputTokenCount = _batchOptions.Filtering.MaxTokens,
-            Temperature = 0.2f
-        };
+        var options = new ChatCompletionOptions();
 
-        var response = await _chatClient!.CompleteChatAsync(messages, options, cancellationToken);
+        // 推論モデルでなければ Temperature を設定
+        if (!ModelCapabilities.IsReasoningModel(_openAIOptions.DeploymentName))
+        {
+            options.Temperature = 0.2f;
+        }
+
+        var response = await _chatClient!.CompleteChatAsync(
+            messages: messages,
+            options: options,
+            cancellationToken: cancellationToken);
+
         var content = response.Value.Content[0].Text;
-        var usage = response.Value.Usage;
+        var inputTokens = response.Value.Usage?.InputTokenCount ?? 0;
+        var outputTokens = response.Value.Usage?.OutputTokenCount ?? 0;
 
         var evaluations = ParseRelevanceResponse(content, batch);
-        return (evaluations, usage.InputTokenCount, usage.OutputTokenCount);
+        return (evaluations, inputTokens, outputTokens);
     }
 
     private async Task<BatchQualityResult> EvaluateQualityBatchAsync(
@@ -826,18 +905,25 @@ public class ScoringService : IScoringService
             new UserChatMessage(prompt)
         };
 
-        var options = new ChatCompletionOptions
-        {
-            MaxOutputTokenCount = _batchOptions.QualityFallback.MaxTokens,
-            Temperature = 0.3f
-        };
+        var options = new ChatCompletionOptions();
 
-        var response = await _chatClient!.CompleteChatAsync(messages, options, cancellationToken);
+        // 推論モデルでなければ Temperature を設定
+        if (!ModelCapabilities.IsReasoningModel(_openAIOptions.DeploymentName))
+        {
+            options.Temperature = 0.3f;
+        }
+
+        var response = await _chatClient!.CompleteChatAsync(
+            messages: messages,
+            options: options,
+            cancellationToken: cancellationToken);
+
         var content = response.Value.Content[0].Text;
-        var usage = response.Value.Usage;
+        var inputTokens = response.Value.Usage?.InputTokenCount ?? 0;
+        var outputTokens = response.Value.Usage?.OutputTokenCount ?? 0;
 
         var evaluations = ParseQualityResponse(content, batch);
-        return (evaluations, usage.InputTokenCount, usage.OutputTokenCount);
+        return (evaluations, inputTokens, outputTokens);
     }
 
     private List<ArticleRelevance> ParseRelevanceResponse(string content, List<Article> batch)
@@ -1055,10 +1141,10 @@ public class ScoringService : IScoringService
         var keywordList = keywords.ToList();
         var result = new EnsembleEvaluationResult { ArticleId = article.Id };
 
-        // Judgeクライアントがない場合のみフォールバック
-        if (!_judgeClients.Any())
+        // Judge Agentがない場合のみフォールバック
+        if (!_judgeAgents.Any())
         {
-            _logger.LogInformation("No judge clients available, falling back to single model for article: {ArticleId}", article.Id);
+            _logger.LogInformation("No judge agents available, falling back to single model for article: {ArticleId}", article.Id);
             return await FallbackToSingleModelEvaluationAsync(article, keywordList, cancellationToken);
         }
 
@@ -1074,7 +1160,7 @@ public class ScoringService : IScoringService
         }
 
         // Phase 2: Meta-Judge統合評価（常に実行）
-        if (_metaJudgeClient != null && _ensembleOptions.MetaJudge.IsEnabled)
+        if (_metaJudgeAgent != null && _ensembleOptions.MetaJudge.IsEnabled)
         {
             var metaResult = await EvaluateWithMetaJudgeAsync(article, keywordList, judgeEvaluations, cancellationToken);
             result.MetaJudgeResult = metaResult;
@@ -1249,7 +1335,7 @@ public class ScoringService : IScoringService
         List<string> keywords,
         CancellationToken cancellationToken)
     {
-        var enabledJudges = _ensembleOptions.Judges.Where(j => j.IsEnabled && _judgeClients.ContainsKey(j.JudgeId)).ToList();
+        var enabledJudges = _ensembleOptions.Judges.Where(j => j.IsEnabled && _judgeAgents.ContainsKey(j.JudgeId)).ToList();
         var semaphore = new SemaphoreSlim(_ensembleOptions.MaxParallelJudges);
         var results = new List<JudgeEvaluation>();
 
@@ -1290,70 +1376,58 @@ public class ScoringService : IScoringService
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
-        var client = _judgeClients[judgeConfig.JudgeId];
+
+        if (!_judgeAgents.TryGetValue(judgeConfig.JudgeId, out var agent))
+        {
+            _logger.LogError("Judge Agent not found: {JudgeId}", judgeConfig.JudgeId);
+            return null;
+        }
 
         var systemPrompt = BuildJudgeSystemPrompt(judgeConfig.Specialty);
         var userPrompt = BuildJudgeUserPrompt(article, keywords);
 
-        var messages = new List<ChatMessage>
-        {
-            new SystemChatMessage(systemPrompt),
-            new UserChatMessage(userPrompt)
-        };
-
-        // モデルの機能に応じてパラメータを自動設定
-        var options = new ChatCompletionOptions();
         var deploymentName = judgeConfig.DeploymentName;
-
-        // Temperature: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
-        var effectiveTemp = ModelCapabilities.GetEffectiveTemperature(deploymentName, judgeConfig.Temperature);
-        if (effectiveTemp.HasValue)
-        {
-            options.Temperature = effectiveTemp.Value;
-        }
-
-        // MaxTokens: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
-        var effectiveMaxTokens = ModelCapabilities.GetEffectiveMaxTokens(deploymentName, judgeConfig.MaxTokens > 0 ? judgeConfig.MaxTokens : null);
-        if (effectiveMaxTokens.HasValue)
-        {
-            options.MaxOutputTokenCount = effectiveMaxTokens.Value;
-        }
-
         var isReasoningModel = ModelCapabilities.IsReasoningModel(deploymentName);
-        _logger.LogDebug("Judge {JudgeId} using model {Model} (reasoning={IsReasoning}, temp={Temp}, maxTokens={MaxTokens})",
-            judgeConfig.JudgeId, deploymentName, isReasoningModel,
-            effectiveTemp?.ToString() ?? "N/A", effectiveMaxTokens?.ToString() ?? "N/A");
+        var requiresResponsesApi = ModelCapabilities.RequiresResponsesApi(deploymentName);
 
-        ChatCompletion? response = null;
-        try
-        {
-            response = await client.CompleteChatAsync(messages, options, cancellationToken);
-        }
-        catch (ClientResultException ex) when (ex.Message.Contains("unsupported_parameter") || ex.Message.Contains("unsupported_value"))
-        {
-            _logger.LogWarning(ex, "Judge {JudgeId} API parameter error. Model={Model}, IsReasoning={IsReasoning}",
-                judgeConfig.JudgeId, judgeConfig.DeploymentName, isReasoningModel);
-            throw;
-        }
+        _logger.LogDebug("Judge {JudgeId} using model {Model} (reasoning={IsReasoning}, responsesApi={RequiresResponses})",
+            judgeConfig.JudgeId, deploymentName, isReasoningModel, requiresResponsesApi);
 
-        if (response == null)
+        // AIAgentを使用してプロンプトを実行（APIの種類は自動選択される）
+        var fullPrompt = $"{systemPrompt}\n\n{userPrompt}";
+        var response = await agent.RunAsync(fullPrompt, cancellationToken: cancellationToken);
+
+        if (response == null || string.IsNullOrEmpty(response.Text))
         {
             _logger.LogError("Judge {JudgeId} failed to get response for article {ArticleId}", judgeConfig.JudgeId, article.Id);
             return null;
         }
 
-        var content = response.Content[0].Text;
+        var content = response.Text;
         stopwatch.Stop();
 
         var parsed = ParseJudgeEvaluation(content, judgeConfig);
         if (parsed != null)
         {
             parsed.Duration = stopwatch.Elapsed;
-            parsed.InputTokens = response.Usage?.InputTokenCount ?? 0;
-            parsed.OutputTokens = response.Usage?.OutputTokenCount ?? 0;
+            // AIAgent経由ではトークン使用量が直接取得できないため、概算
+            parsed.InputTokens = EstimateTokenCount(fullPrompt);
+            parsed.OutputTokens = EstimateTokenCount(content);
         }
 
         return parsed;
+    }
+
+    /// <summary>
+    /// トークン数を概算（正確ではないが参考値として使用）
+    /// 平均的に英語は4文字=1トークン、日本語は2文字=1トークン程度
+    /// </summary>
+    private int EstimateTokenCount(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        // 日本語が含まれているかで推定方法を変える
+        var hasJapanese = text.Any(c => c >= 0x3040 && c <= 0x30FF || c >= 0x4E00 && c <= 0x9FFF);
+        return hasJapanese ? text.Length / 2 : text.Length / 4;
     }
 
     private async Task<MetaJudgeResult?> EvaluateWithMetaJudgeAsync(
@@ -1362,77 +1436,46 @@ public class ScoringService : IScoringService
         List<JudgeEvaluation> judgeEvaluations,
         CancellationToken cancellationToken)
     {
-        if (_metaJudgeClient == null) return null;
+        if (_metaJudgeAgent == null) return null;
 
         var stopwatch = Stopwatch.StartNew();
         var systemPrompt = BuildMetaJudgeSystemPrompt();
         var userPrompt = BuildMetaJudgeUserPrompt(article, keywords, judgeEvaluations);
 
-        var messages = new List<ChatMessage>
-        {
-            new SystemChatMessage(systemPrompt),
-            new UserChatMessage(userPrompt)
-        };
-
-        // モデルの機能に応じてパラメータを自動設定
-        var options = new ChatCompletionOptions();
         var metaJudgeDeployment = _ensembleOptions.MetaJudge.DeploymentName;
-
-        // Temperature: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
-        var effectiveTemp = ModelCapabilities.GetEffectiveTemperature(metaJudgeDeployment, _ensembleOptions.MetaJudge.Temperature);
-        if (effectiveTemp.HasValue)
-        {
-            options.Temperature = effectiveTemp.Value;
-        }
-
-        // MaxTokens: 推論モデルはnull（設定不可）、通常モデルはデフォルトまたはオーバーライド値
-        var effectiveMaxTokens = ModelCapabilities.GetEffectiveMaxTokens(metaJudgeDeployment,
-            _ensembleOptions.MetaJudge.MaxTokens > 0 ? _ensembleOptions.MetaJudge.MaxTokens : null);
-        if (effectiveMaxTokens.HasValue)
-        {
-            options.MaxOutputTokenCount = effectiveMaxTokens.Value;
-        }
-
         var isReasoningModel = ModelCapabilities.IsReasoningModel(metaJudgeDeployment);
-        _logger.LogDebug("Meta-Judge using model {Model} (reasoning={IsReasoning}, temp={Temp}, maxTokens={MaxTokens})",
-            metaJudgeDeployment, isReasoningModel,
-            effectiveTemp?.ToString() ?? "N/A", effectiveMaxTokens?.ToString() ?? "N/A");
+        var requiresResponsesApi = ModelCapabilities.RequiresResponsesApi(metaJudgeDeployment);
 
-        ChatCompletion? response = null;
+        _logger.LogDebug("Meta-Judge using model {Model} (reasoning={IsReasoning}, responsesApi={RequiresResponses})",
+            metaJudgeDeployment, isReasoningModel, requiresResponsesApi);
+
+        // AIAgentを使用してプロンプトを実行
+        var fullPrompt = $"{systemPrompt}\n\n{userPrompt}";
+        var response = await _metaJudgeAgent.RunAsync(fullPrompt, cancellationToken: cancellationToken);
+
+        if (response == null || string.IsNullOrEmpty(response.Text))
+        {
+            _logger.LogError("Meta-Judge failed to get response for article {ArticleId}", article.Id);
+            return null;
+        }
+
+        var content = response.Text;
+        stopwatch.Stop();
+
         try
         {
-            response = await _metaJudgeClient.CompleteChatAsync(messages, options, cancellationToken);
-        }
-        catch (ClientResultException ex) when (ex.Message.Contains("unsupported_parameter") || ex.Message.Contains("unsupported_value"))
-        {
-            _logger.LogWarning(ex, "Meta-Judge API parameter error. Model={Model}, IsReasoning={IsReasoning}",
-                metaJudgeDeployment, isReasoningModel);
-            throw;
-        }
-
-        try
-        {
-            if (response == null)
+            var metaResult = ParseMetaJudgeResult(content);
+            if (metaResult != null)
             {
-                _logger.LogError("Meta-Judge failed to get response for article {ArticleId}", article.Id);
-                return null;
-            }
-
-            var content = response.Content[0].Text;
-            stopwatch.Stop();
-
-            var result = ParseMetaJudgeResult(content);
-            if (result != null)
-            {
-                result.Duration = stopwatch.Elapsed;
-                result.InputTokens = response.Usage?.InputTokenCount ?? 0;
-                result.OutputTokens = response.Usage?.OutputTokenCount ?? 0;
+                metaResult.Duration = stopwatch.Elapsed;
+                metaResult.InputTokens = EstimateTokenCount(fullPrompt);
+                metaResult.OutputTokens = EstimateTokenCount(content);
 
                 // 矛盾検出
-                result.HasContradiction = DetectContradictions(judgeEvaluations, result.Contradictions);
+                metaResult.HasContradiction = DetectContradictions(judgeEvaluations, metaResult.Contradictions);
             }
 
-            return result;
+            return metaResult;
         }
         catch (Exception ex)
         {

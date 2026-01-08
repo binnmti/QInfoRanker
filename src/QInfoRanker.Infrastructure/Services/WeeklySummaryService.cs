@@ -3,16 +3,18 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Azure.AI.OpenAI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OpenAI;
 using OpenAI.Chat;
 using QInfoRanker.Core.Entities;
 using QInfoRanker.Core.Enums;
 using QInfoRanker.Core.Interfaces.Services;
 using QInfoRanker.Infrastructure.Data;
 using QInfoRanker.Infrastructure.Scoring;
+
+#pragma warning disable OPENAI001 // Type is for evaluation purposes only
 
 namespace QInfoRanker.Infrastructure.Services;
 
@@ -21,7 +23,6 @@ public class WeeklySummaryService : IWeeklySummaryService
     private readonly AppDbContext _context;
     private readonly AzureOpenAIOptions _openAIOptions;
     private readonly ILogger<WeeklySummaryService> _logger;
-    private readonly AzureOpenAIClient? _client;
     private readonly ChatClient? _chatClient;
 
     private const int MinArticlesForSummary = 3;
@@ -38,10 +39,17 @@ public class WeeklySummaryService : IWeeklySummaryService
 
         if (!string.IsNullOrEmpty(_openAIOptions.Endpoint) && !string.IsNullOrEmpty(_openAIOptions.ApiKey))
         {
-            _client = new AzureOpenAIClient(
-                new Uri(_openAIOptions.Endpoint),
-                new ApiKeyCredential(_openAIOptions.ApiKey));
-            _chatClient = _client.GetChatClient(_openAIOptions.DeploymentName);
+            var baseEndpoint = _openAIOptions.Endpoint.TrimEnd('/');
+            var v1Endpoint = new Uri($"{baseEndpoint}/openai/v1");
+            var credential = new ApiKeyCredential(_openAIOptions.ApiKey);
+
+            var clientOptions = new OpenAIClientOptions
+            {
+                Endpoint = v1Endpoint
+            };
+
+            var openAIClient = new OpenAIClient(credential, clientOptions);
+            _chatClient = openAIClient.GetChatClient(_openAIOptions.DeploymentName);
         }
     }
 
@@ -287,21 +295,32 @@ public class WeeklySummaryService : IWeeklySummaryService
 
             """;
 
+        var systemPrompt = "あなたはテクノロジーニュースライターです。JSON形式でのみ回答してください。本文には必ず複数のMarkdownリンク[テキスト](URL)を含めてください。";
         var messages = new List<ChatMessage>
         {
-            new SystemChatMessage("あなたはテクノロジーニュースライターです。JSON形式でのみ回答してください。本文には必ず複数のMarkdownリンク[テキスト](URL)を含めてください。"),
+            new SystemChatMessage(systemPrompt),
             new UserChatMessage(prompt)
         };
 
-        var options = new ChatCompletionOptions
+        var options = new ChatCompletionOptions();
+
+        // 推論モデルでなければ Temperature を設定
+        if (!ModelCapabilities.IsReasoningModel(_openAIOptions.DeploymentName))
         {
-            MaxOutputTokenCount = 4000,
-            Temperature = 0.5f
-        };
+            options.Temperature = 0.5f;
+        }
+        else
+        {
+            options.ReasoningEffortLevel = ChatReasoningEffortLevel.Low;
+        }
 
         try
         {
-            var response = await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
+            var response = await _chatClient.CompleteChatAsync(
+                messages: messages,
+                options: options,
+                cancellationToken: cancellationToken);
+
             var responseContent = response.Value.Content[0].Text;
 
             var parsed = ParseSummaryResponse(responseContent);
