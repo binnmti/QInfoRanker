@@ -323,7 +323,7 @@
             <option value="collected">収集順</option>
         </select>
     </div>
-    <div class="col-md-2 d-flex align-items-end">
+    <div class="col-md-1 d-flex align-items-end">
         <button class="btn btn-outline-secondary btn-sm" @onclick="LoadArticles" disabled="@isLoading">
             @if (isLoading)
             {
@@ -334,6 +334,12 @@
                 <span>更新</span>
             }
         </button>
+    </div>
+    <div class="col-md-1 d-flex align-items-end">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="showExcluded" @bind="showExcluded" @bind:after="ResetPageAndLoad">
+            <label class="form-check-label small" for="showExcluded" title="関連性が低く除外された記事も表示">除外含む</label>
+        </div>
     </div>
 </div>
 
@@ -408,6 +414,10 @@ else
                 <div class="mt-1 d-flex flex-wrap gap-2 align-items-center text-muted small">
                     <span class="badge bg-secondary">@article.Source.Name</span>
                     <span class="badge @GetLanguageBadgeClass(article.Source.Language)">@GetLanguageLabel(article.Source.Language)</span>
+                    @if (article.IsRelevant == false)
+                    {
+                        <span class="badge bg-danger" title="関連性が低いため除外">評価外</span>
+                    }
                     @if (article.PublishedAt.HasValue)
                     {
                         <span>@article.PublishedAt.Value.ToString("yyyy-MM-dd")</span>
@@ -417,18 +427,19 @@ else
                         <span title="Popularity (likes, bookmarks)">★@article.NativeScore</span>
                     }
                     @{
-                        var relevance20 = (article.RelevanceScore ?? 5) * 2;
+                        // EnsembleRelevanceScoreを優先、なければRelevanceScore*2（フォールバック）
+                        var relevanceScore = article.EnsembleRelevanceScore ?? ((article.RelevanceScore ?? 5) * 2);
                         var isScored = article.LlmScore.HasValue;
                     }
                     @if (isScored)
                     {
                         <span class="ms-auto d-flex align-items-center gap-1"
-                              title="5項目×20点=100点満点&#10;技術:@(article.TechnicalScore ?? 0) + 新規:@(article.NoveltyScore ?? 0) + 影響:@(article.ImpactScore ?? 0) + 品質:@(article.QualityScore ?? 0) + 関連:@(relevance20) = @article.FinalScore.ToString("F0")">
-                            <span class="badge bg-info" style="font-size:0.6rem" title="技術的深さ (20点)">技@(article.TechnicalScore ?? 0)</span>
-                            <span class="badge bg-success" style="font-size:0.6rem" title="新規性 (20点)">新@(article.NoveltyScore ?? 0)</span>
-                            <span class="badge bg-warning text-dark" style="font-size:0.6rem" title="影響度 (20点)">影@(article.ImpactScore ?? 0)</span>
-                            <span class="badge bg-secondary" style="font-size:0.6rem" title="執筆品質 (20点)">質@(article.QualityScore ?? 0)</span>
-                            <span class="badge bg-primary" style="font-size:0.6rem" title="関連性 (20点)">関@(relevance20)</span>
+                              title="5項目×20点=100点満点&#10;技術:@(article.TechnicalScore ?? 0) + 新規:@(article.NoveltyScore ?? 0) + 影響:@(article.ImpactScore ?? 0) + 品質:@(article.QualityScore ?? 0) + 関連:@(relevanceScore) = @article.FinalScore.ToString("F0")">
+                            <span class="badge bg-info" style="font-size:0.6rem" title="技術的深さ (20点満点)">技術@(article.TechnicalScore ?? 0)</span>
+                            <span class="badge bg-success" style="font-size:0.6rem" title="新規性 (20点満点)">新規@(article.NoveltyScore ?? 0)</span>
+                            <span class="badge bg-warning text-dark" style="font-size:0.6rem" title="影響度・実用性 (20点満点)">影響@(article.ImpactScore ?? 0)</span>
+                            <span class="badge bg-secondary" style="font-size:0.6rem" title="執筆品質 (20点満点)">品質@(article.QualityScore ?? 0)</span>
+                            <span class="badge bg-primary" style="font-size:0.6rem" title="キーワードとの関連性 (20点満点)">関連@(relevanceScore)</span>
                             <strong class="ms-1">@article.FinalScore.ToString("F0")</strong><span style="font-size:0.7rem">点</span>
                         </span>
                     }
@@ -509,6 +520,7 @@ else
     private string selectedLanguage = "";
     private string selectedPeriod = "week";
     private string sortBy = "score";
+    private bool showExcluded = false;  // 評価外の記事も表示（デバッグ用）
     private int pageSize = 20;
     private int currentPage = 1;
     private int totalCount = 0;
@@ -603,9 +615,11 @@ else
             .ToHashSet();
 
         // スコア済み記事 OR 収集中キーワードの記事（採点待ち含む）を表示
+        // ただし、IsRelevant == false（低スコアで除外された記事）は通常非表示（showExcludedで切り替え）
         allArticles = allArticles.Where(a =>
-            a.LlmScore.HasValue ||  // スコア済み
-            activeCollectionKeywordIds.Contains(a.KeywordId));  // 収集中のキーワード
+            (showExcluded || a.IsRelevant != false) &&  // 除外記事は showExcluded 時のみ表示
+            (a.LlmScore.HasValue ||  // スコア済み
+             activeCollectionKeywordIds.Contains(a.KeywordId)));  // 収集中のキーワード
 
         // Apply sorting: スコア済みを優先、その後は収集日時順
         var sortedArticles = sortBy switch

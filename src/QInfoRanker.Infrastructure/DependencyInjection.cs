@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.Configure<ScoringOptions>(configuration.GetSection(ScoringOptions.SectionName));
         services.Configure<BatchScoringOptions>(configuration.GetSection(BatchScoringOptions.SectionName));
         services.Configure<EnsembleScoringOptions>(configuration.GetSection(EnsembleScoringOptions.SectionName));
+        services.Configure<WeeklySummaryOptions>(configuration.GetSection(WeeklySummaryOptions.SectionName));
 
         // HttpClient for collectors
         services.AddHttpClient<HackerNewsCollector>();

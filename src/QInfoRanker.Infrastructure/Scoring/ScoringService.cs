@@ -1243,6 +1243,7 @@ JSON形式で回答:
         IEnumerable<string> keywords,
         bool skipRelevanceFilter,
         IProgress<ScoringProgress>? progress,
+        bool debugMode = false,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -1250,8 +1251,8 @@ JSON形式で回答:
         var keywordList = keywords.ToList();
         var result = new ThreeStageResult();
 
-        _logger.LogInformation("Starting 3-stage evaluation for {Count} articles (ensemble mode)",
-            articleList.Count);
+        _logger.LogInformation("Starting 3-stage evaluation for {Count} articles (ensemble mode, debugMode={DebugMode})",
+            articleList.Count, debugMode);
 
         // Stage 1: 関連性評価のみ実行（品質評価は行わない）
         List<Article> relevantArticles;
@@ -1317,38 +1318,102 @@ JSON形式で回答:
 
         // Stage 2 + 3: アンサンブル評価
         var ensembleResults = new List<EnsembleEvaluationResult>();
-        var processedCount = 0;
 
-        foreach (var article in relevantArticles)
+        if (debugMode)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            // デバッグモード: MetaJudgeモデルで直接評価 + 並列処理で高速化
+            // Judge評価をスキップしてAPI呼び出しを1/3に削減
+            _logger.LogInformation("Debug mode: Direct evaluation with MetaJudge, processing {Count} articles in parallel",
+                relevantArticles.Count);
 
-                    var ensembleResult = await EvaluateEnsembleAsync(article, keywordList, cancellationToken);
-            ensembleResults.Add(ensembleResult);
-
-            // 結果をArticleに反映
-            article.EnsembleRelevanceScore = ensembleResult.FinalRelevance;
-            article.TechnicalScore = ensembleResult.FinalTechnical;
-            article.NoveltyScore = ensembleResult.FinalNovelty;
-            article.ImpactScore = ensembleResult.FinalImpact;
-            article.QualityScore = ensembleResult.FinalQuality;
-            article.LlmScore = ensembleResult.FinalTotal;
-            article.SummaryJa = ensembleResult.FinalSummaryJa;
-
-            processedCount++;
             progress?.Report(new ScoringProgress(
                 ScoringStage.QualityEvaluation,
-                processedCount,
+                0,
                 relevantArticles.Count,
-                processedCount,
+                0,
                 relevantArticles.Count,
                 relevantArticles.Count,
-                $"アンサンブル評価中: {processedCount}/{relevantArticles.Count}"));
+                $"直接評価中（並列処理）: 0/{relevantArticles.Count}"));
 
-            // レート制限対策の待機
-            if (processedCount < relevantArticles.Count)
+            var tasks = relevantArticles.Select(async article =>
             {
-                await Task.Delay(_batchOptions.DelayBetweenBatchesMs, cancellationToken);
+                // MetaJudgeモデルで直接評価（Judge評価をスキップ）
+                var ensembleResult = await EvaluateDirectWithMetaJudgeAsync(article, keywordList, cancellationToken);
+
+                // 結果をArticleに反映
+                article.EnsembleRelevanceScore = ensembleResult.FinalRelevance;
+                article.TechnicalScore = ensembleResult.FinalTechnical;
+                article.NoveltyScore = ensembleResult.FinalNovelty;
+                article.ImpactScore = ensembleResult.FinalImpact;
+                article.QualityScore = ensembleResult.FinalQuality;
+                article.LlmScore = ensembleResult.FinalTotal;
+                article.SummaryJa = ensembleResult.FinalSummaryJa;
+
+                // アンサンブル評価での関連性が閾値未満なら除外
+                if (ensembleResult.FinalRelevance < _scoringOptions.EnsembleRelevanceThreshold)
+                {
+                    article.IsRelevant = false;
+                }
+
+                return ensembleResult;
+            });
+
+            var results = await Task.WhenAll(tasks);
+            ensembleResults.AddRange(results);
+
+            progress?.Report(new ScoringProgress(
+                ScoringStage.QualityEvaluation,
+                relevantArticles.Count,
+                relevantArticles.Count,
+                relevantArticles.Count,
+                relevantArticles.Count,
+                relevantArticles.Count,
+                $"直接評価完了（並列処理）: {relevantArticles.Count}/{relevantArticles.Count}"));
+        }
+        else
+        {
+            // 通常モード: 1記事ずつ順次処理
+            var processedCount = 0;
+
+            foreach (var article in relevantArticles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var ensembleResult = await EvaluateEnsembleAsync(article, keywordList, cancellationToken);
+                ensembleResults.Add(ensembleResult);
+
+                // 結果をArticleに反映
+                article.EnsembleRelevanceScore = ensembleResult.FinalRelevance;
+                article.TechnicalScore = ensembleResult.FinalTechnical;
+                article.NoveltyScore = ensembleResult.FinalNovelty;
+                article.ImpactScore = ensembleResult.FinalImpact;
+                article.QualityScore = ensembleResult.FinalQuality;
+                article.LlmScore = ensembleResult.FinalTotal;
+                article.SummaryJa = ensembleResult.FinalSummaryJa;
+
+                // アンサンブル評価での関連性が閾値未満なら除外
+                if (ensembleResult.FinalRelevance < _scoringOptions.EnsembleRelevanceThreshold)
+                {
+                    article.IsRelevant = false;
+                    _logger.LogDebug("アンサンブル評価で除外: {Title} (Relevance={Relevance} < {Threshold})",
+                        article.Title, ensembleResult.FinalRelevance, _scoringOptions.EnsembleRelevanceThreshold);
+                }
+
+                processedCount++;
+                progress?.Report(new ScoringProgress(
+                    ScoringStage.QualityEvaluation,
+                    processedCount,
+                    relevantArticles.Count,
+                    processedCount,
+                    relevantArticles.Count,
+                    relevantArticles.Count,
+                    $"アンサンブル評価中: {processedCount}/{relevantArticles.Count}"));
+
+                // レート制限対策の待機
+                if (processedCount < relevantArticles.Count)
+                {
+                    await Task.Delay(_batchOptions.DelayBetweenBatchesMs, cancellationToken);
+                }
             }
         }
 
@@ -1730,6 +1795,142 @@ JSON形式で回答:
         return result;
     }
 
+    /// <summary>
+    /// デバッグモード用: MetaJudgeモデルで記事を直接評価（Judge評価をスキップ）
+    /// API呼び出しを1回に削減して高速化
+    /// </summary>
+    private async Task<EnsembleEvaluationResult> EvaluateDirectWithMetaJudgeAsync(
+        Article article,
+        List<string> keywords,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var result = new EnsembleEvaluationResult { ArticleId = article.Id, SkippedMetaJudge = false };
+
+        // MetaJudgeクライアントがない場合はフォールバック
+        if (_metaJudgeChatClient == null && _metaJudgeResponsesClient == null)
+        {
+            _logger.LogWarning("MetaJudge client not available for direct evaluation, falling back");
+            return await FallbackToSingleModelEvaluationAsync(article, keywords, cancellationToken);
+        }
+
+        var metaJudgeDeployment = _ensembleOptions.MetaJudge.DeploymentName;
+        var isReasoningModel = ModelCapabilities.IsReasoningModel(metaJudgeDeployment);
+        var requiresResponsesApi = ModelCapabilities.RequiresResponsesApi(metaJudgeDeployment);
+
+        // Judgeプロンプトを使用（記事を直接評価）
+        var systemPrompt = BuildJudgeSystemPrompt(null); // 汎用評価
+        var userPrompt = BuildJudgeUserPrompt(article, keywords);
+
+        _logger.LogDebug("Direct evaluation using MetaJudge model {Model} for article {ArticleId}",
+            metaJudgeDeployment, article.Id);
+
+        string content;
+        int inputTokens = 0;
+        int outputTokens = 0;
+
+        try
+        {
+            if (requiresResponsesApi && _metaJudgeResponsesClient != null)
+            {
+                var fullPrompt = $"{systemPrompt}\n\n{userPrompt}";
+                var clientResult = await _metaJudgeResponsesClient.CreateResponseAsync(fullPrompt, cancellationToken: cancellationToken);
+                var response = clientResult.Value;
+                content = response.GetOutputText();
+                inputTokens = response.Usage?.InputTokenCount ?? 0;
+                outputTokens = response.Usage?.OutputTokenCount ?? 0;
+            }
+            else if (_metaJudgeChatClient != null)
+            {
+                var messages = new List<ChatMessage>
+                {
+                    new SystemChatMessage(systemPrompt),
+                    new UserChatMessage(userPrompt)
+                };
+
+                var options = new ChatCompletionOptions();
+
+                if (!isReasoningModel)
+                {
+                    var effectiveTemp = ModelCapabilities.GetEffectiveTemperature(metaJudgeDeployment, _ensembleOptions.MetaJudge.Temperature);
+                    if (effectiveTemp.HasValue)
+                    {
+                        options.Temperature = effectiveTemp.Value;
+                    }
+                }
+                else
+                {
+                    options.ReasoningEffortLevel = ChatReasoningEffortLevel.Low;
+                }
+
+                var response = await _metaJudgeChatClient.CompleteChatAsync(messages, options, cancellationToken);
+                content = response.Value.Content[0].Text;
+                inputTokens = response.Value.Usage?.InputTokenCount ?? 0;
+                outputTokens = response.Value.Usage?.OutputTokenCount ?? 0;
+            }
+            else
+            {
+                _logger.LogError("No MetaJudge client available");
+                return await FallbackToSingleModelEvaluationAsync(article, keywords, cancellationToken);
+            }
+        }
+        catch (ClientResultException ex)
+        {
+            _logger.LogError(ex, "Direct evaluation API error for article {ArticleId}", article.Id);
+            return await FallbackToSingleModelEvaluationAsync(article, keywords, cancellationToken);
+        }
+
+        if (string.IsNullOrEmpty(content))
+        {
+            _logger.LogError("Direct evaluation got empty response for article {ArticleId}", article.Id);
+            return await FallbackToSingleModelEvaluationAsync(article, keywords, cancellationToken);
+        }
+
+        // Judgeプロンプトの結果をパース（ParseJudgeEvaluationと同じ形式）
+        var fakeJudgeConfig = new JudgeModelConfiguration
+        {
+            JudgeId = "DirectMetaJudge",
+            DeploymentName = metaJudgeDeployment,
+            Weight = 1.0
+        };
+        var parsed = ParseJudgeEvaluation(content, fakeJudgeConfig);
+
+        if (parsed != null)
+        {
+            result.FinalRelevance = parsed.Relevance;
+            result.FinalTechnical = parsed.Technical;
+            result.FinalNovelty = parsed.Novelty;
+            result.FinalImpact = parsed.Impact;
+            result.FinalQuality = parsed.Quality;
+            result.FinalTotal = parsed.Total > 0 ? parsed.Total :
+                parsed.Relevance + parsed.Technical + parsed.Novelty + parsed.Impact + parsed.Quality;
+            result.FinalSummaryJa = parsed.SummaryJa;
+            result.Confidence = 0.85; // 推論モデル単体なので高めの信頼度
+
+            // JudgeEvaluationsに追加（デバッグ情報として）
+            parsed.Duration = stopwatch.Elapsed;
+            parsed.InputTokens = inputTokens;
+            parsed.OutputTokens = outputTokens;
+            result.JudgeEvaluations.Add(parsed);
+        }
+        else
+        {
+            _logger.LogWarning("Failed to parse direct evaluation response for article {ArticleId}", article.Id);
+            return await FallbackToSingleModelEvaluationAsync(article, keywords, cancellationToken);
+        }
+
+        stopwatch.Stop();
+        result.TotalDuration = stopwatch.Elapsed;
+        result.TotalInputTokens = inputTokens;
+        result.TotalOutputTokens = outputTokens;
+
+        _logger.LogInformation(
+            "Direct evaluation completed for article {ArticleId}: Total={Total}, Duration={Duration}ms",
+            article.Id, result.FinalTotal, stopwatch.ElapsedMilliseconds);
+
+        return result;
+    }
+
     private double CalculateStdDev(IEnumerable<double> values)
     {
         var list = values.ToList();
@@ -1857,22 +2058,21 @@ URL: {article.Url}
     private static string GetSummaryInstruction(SummaryMode mode) => mode switch
     {
         SummaryMode.TranslateOnly => @"【要約タスク: 翻訳・整形】
-この記事は既に要約/Abstract形式です。
+既に要約/Abstract形式のため:
 - 英語の場合は日本語に翻訳
-- 日本語の場合はそのまま活用（文体を整える程度）
-- 「この記事は」「本記事では」等の冗長な前置きは不要
+- 日本語の場合はそのまま活用（「この記事は」「本記事では」等を追加しない）
 - 具体的な情報（数値・名称・結果）を保持",
 
         SummaryMode.Summarize => @"【要約タスク: 全文要約】
-この記事は全文または本文の一部です。
+全文または本文の一部のため:
 - 重要なポイントを200字程度に凝縮
-- 冒頭から本題に入る（「この記事は」で始めない）
+- 冒頭から本題に入る（「この記事は」「本記事では」で始めない）
 - 具体的な技術名・数値・結果を含める",
 
         SummaryMode.Limited => @"【要約タスク: 限定情報】
-この記事は限られた情報のみです。
+限られた情報のみのため:
 - タイトルと概要から推測できる内容を簡潔に記述
-- 「〜について」等の曖昧な表現は避け、具体的に
+- 「この記事は」「本記事では」「〜について」等の前置きは避け、具体的に
 - 情報が不足していれば短くてもOK",
 
         _ => ""
@@ -1888,6 +2088,8 @@ URL: {article.Url}
 3. 各評価者の専門性と重みを考慮した最終スコアを決定
 4. 信頼度（0.0-1.0）を算出
 5. 要約を統合・改善
+
+要約の注意: 「この記事は」「本記事では」のような前置きで始めず、冒頭から本題に入ってください。
 
 回答はJSON形式で出力してください。";
     }
@@ -1932,27 +2134,22 @@ URL: {article.Url}
     private static string GetMetaJudgeSummaryRule(SummaryMode mode) => mode switch
     {
         SummaryMode.TranslateOnly => @"【要約統合ルール: 翻訳・整形モード】
-元情報は既に要約/Abstract形式のため:
 - 各Judgeの要約から最も正確で具体的なものをベースに統合
 - 英語情報は自然な日本語に翻訳
-- 「この記事は」「本記事では」「〜について報じている」等の前置きは削除
 - 元の具体的情報（数値・固有名詞・結果）を必ず保持",
 
         SummaryMode.Summarize => @"【要約統合ルール: 全文要約モード】
-元情報は全文/本文のため:
 - 各Judgeの要約を統合し、重要ポイントを凝縮
-- 冒頭から本題に入る（「この記事は」で始めない）
 - 具体的な技術名・数値・結果を含める
 - 300字程度で情報密度の高い要約に",
 
         SummaryMode.Limited => @"【要約統合ルール: 限定情報モード】
-元情報が限られているため:
 - 各Judgeの要約から情報を補完・統合
 - 推測は避け、確実な情報のみ記述
 - 短くても正確な要約を優先",
 
         _ => @"【要約ルール】
-- 冒頭から本題に入る（「この記事は」「本記事では」で始めない）
+- 冒頭から本題に入る
 - 具体的な技術名・数値・結果を含める
 - 抽象的な評価（「注目される」「期待される」等）は避ける"
     };

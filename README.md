@@ -43,7 +43,7 @@
      "ApiKey": "YOUR_API_KEY"
    }
    ```
-   ※ 使用するモデルは `BatchScoring` および `EnsembleScoring` セクションで設定
+   ※ 使用するモデルは `BatchScoring`、`EnsembleScoring`、`WeeklySummary` セクションで設定
 
 3. アプリケーションを実行
    ```bash

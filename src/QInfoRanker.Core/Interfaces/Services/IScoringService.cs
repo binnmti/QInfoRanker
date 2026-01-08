@@ -58,11 +58,13 @@ public interface IScoringService
     /// 3段階評価（関連性→アンサンブル品質→Meta-Judge）を実行
     /// アンサンブルが無効の場合は従来の2段階評価にフォールバック
     /// </summary>
+    /// <param name="debugMode">デバッグモード（記事を並列処理して高速化）</param>
     Task<ThreeStageResult> EvaluateThreeStageAsync(
         IEnumerable<Article> articles,
         IEnumerable<string> keywords,
         bool skipRelevanceFilter,
         IProgress<ScoringProgress>? progress,
+        bool debugMode = false,
         CancellationToken cancellationToken = default);
 
     #endregion

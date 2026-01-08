@@ -118,13 +118,16 @@
       },
       {
         "JudgeId": "TechExpert",
-        "DeploymentName": "gpt-5-nano",
+        "DeploymentName": "gpt-5.1-codex-mini",
         "Specialty": "technical"
       }
     ],
     "MetaJudge": {
       "DeploymentName": "o3-mini"
     }
+  },
+  "WeeklySummary": {
+    "DeploymentName": "o3-mini"
   }
 }
 ```
@@ -146,13 +149,16 @@
       },
       {
         "JudgeId": "TechExpert",
-        "DeploymentName": "gpt-5-mini",
+        "DeploymentName": "gpt-5-codex",
         "Specialty": "technical"
       }
     ],
     "MetaJudge": {
       "DeploymentName": "o3"
     }
+  },
+  "WeeklySummary": {
+    "DeploymentName": "o3"
   }
 }
 ```
@@ -195,6 +201,12 @@
 |------|:----:|:----------:|------|
 | `DeploymentName` | **必須** | - | Meta-Judgeが使うモデル（推論モデル推奨） |
 
+### WeeklySummary
+
+| 項目 | 必須 | デフォルト | 説明 |
+|------|:----:|:----------:|------|
+| `DeploymentName` | 任意 | o3-mini | 週次まとめ生成に使うモデル（推論モデル推奨） |
+
 ---
 
 ## モデル選定ガイド
@@ -207,6 +219,7 @@
 | GeneralEvaluator | nano | mini | 汎用的な評価能力 |
 | TechExpert | nano | mini | 技術評価もChat対応モデルが必要 |
 | MetaJudge | o3-mini | o3 | 推論特化。複数意見の統合に適している |
+| WeeklySummary | o3-mini | o3 | 推論特化。長文の統合・要約に適している |
 
 **注意**: すべてのJudgeは**Chat Completion対応モデル**が必要です（旧Codexモデルは非対応）
 
@@ -324,4 +337,6 @@
 | バッチ設定 | `Infrastructure/Scoring/BatchScoringOptions.cs` |
 | スコアリング設定 | `Infrastructure/Scoring/ScoringOptions.cs` |
 | アンサンブル設定 | `Infrastructure/Scoring/EnsembleScoringOptions.cs` |
+| 週次まとめ設定 | `Infrastructure/Scoring/WeeklySummaryOptions.cs` |
+| 週次まとめサービス | `Infrastructure/Services/WeeklySummaryService.cs` |
 | 記事エンティティ | `Core/Entities/Article.cs` |

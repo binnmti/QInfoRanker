@@ -197,7 +197,7 @@ public class CollectionService : ICollectionService
                         await ScoreArticlesForSourceAsync(
                             savedArticles, source, searchTerms,
                             keywordId, keyword.Term, sourceIndex, activeSources.Count,
-                            allSavedArticles.Count, cancellationToken);
+                            allSavedArticles.Count, debugMode, cancellationToken);
                         scoredCount = savedArticles.Count(a => a.LlmScore.HasValue);
 
                         var avgScore = savedArticles.Where(a => a.FinalScore > 0).Select(a => a.FinalScore).DefaultIfEmpty(0).Average();
@@ -310,11 +310,13 @@ public class CollectionService : ICollectionService
         int sourceIndex,
         int totalSources,
         int totalArticlesSoFar,
+        bool debugMode,
         CancellationToken cancellationToken)
     {
         if (!articles.Any()) return;
 
-        _logger.LogInformation("Scoring {Count} articles from {Source}", articles.Count, source.Name);
+        _logger.LogInformation("Scoring {Count} articles from {Source} (debugMode={DebugMode})",
+            articles.Count, source.Name, debugMode);
 
         // 進捗コールバック - スコアリング中のバッチ進捗を通知
         var scoredSoFar = 0;
@@ -419,7 +421,7 @@ public class CollectionService : ICollectionService
             _ensembleOptions.Judges.Count(j => j.IsEnabled));
 
         var threeStageResult = await _scoringService.EvaluateThreeStageAsync(
-            articles, searchTerms, source.HasServerSideFiltering, progress, cancellationToken);
+            articles, searchTerms, source.HasServerSideFiltering, progress, debugMode, cancellationToken);
 
         var totalApiCalls = threeStageResult.TotalApiCalls;
         var relevantCount = threeStageResult.RelevanceResult.RelevantCount;

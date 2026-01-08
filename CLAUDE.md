@@ -51,7 +51,7 @@ src/
 ### Infrastructure層
 - `Collectors/` - 各ソース用コレクター（HackerNews, ArXiv, Qiita等）
 - `Data/AppDbContext.cs` - Entity Framework Core DbContext
-- `Scoring/AzureOpenAIScoringService.cs` - AIスコアリングロジック
+- `Scoring/ScoringService.cs` - AIスコアリングロジック
 - `Services/` - ビジネスロジックサービス実装
 
 ### Web層
@@ -99,7 +99,7 @@ dotnet test
 ### 新しいコレクター追加時
 1. `Core/Interfaces/IArticleCollector.cs` を実装
 2. `Infrastructure/Collectors/` に配置
-3. `Program.cs` でDI登録
+3. `Infrastructure/DependencyInjection.cs` でDI登録
 4. `Core/Enums/SourceType.cs` に新しいソースタイプを追加（必要に応じて）
 
 ### スコアリングの流れ
@@ -120,7 +120,7 @@ dotnet test
 - `AzureOpenAI:Endpoint` - Azure OpenAI エンドポイント
 - `AzureOpenAI:ApiKey` - APIキー
 - `UseSqlite` - SQLite使用フラグ（false時はSQL Server）
-- モデル設定は `BatchScoring.Filtering` / `EnsembleScoring` セクションで指定
+- モデル設定は `BatchScoring.Filtering` / `EnsembleScoring` / `WeeklySummary` セクションで指定
 
 ### スコアリングプリセット
 - `Scoring:Preset` - スコアリング方式
@@ -137,6 +137,7 @@ dotnet test
 - スコアリングオプション: `Infrastructure/Scoring/ScoringOptions.cs`
 - バッチオプション: `Infrastructure/Scoring/BatchScoringOptions.cs`
 - アンサンブルオプション: `Infrastructure/Scoring/EnsembleScoringOptions.cs`
+- 週次まとめオプション: `Infrastructure/Scoring/WeeklySummaryOptions.cs`
 - スコアリングサービス: `Infrastructure/Scoring/ScoringService.cs`
 
 ## よくある作業

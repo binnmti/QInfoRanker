@@ -22,6 +22,7 @@ public class WeeklySummaryService : IWeeklySummaryService
 {
     private readonly AppDbContext _context;
     private readonly AzureOpenAIOptions _openAIOptions;
+    private readonly WeeklySummaryOptions _summaryOptions;
     private readonly ILogger<WeeklySummaryService> _logger;
     private readonly ChatClient? _chatClient;
 
@@ -31,10 +32,12 @@ public class WeeklySummaryService : IWeeklySummaryService
     public WeeklySummaryService(
         AppDbContext context,
         IOptions<AzureOpenAIOptions> openAIOptions,
+        IOptions<WeeklySummaryOptions> summaryOptions,
         ILogger<WeeklySummaryService> logger)
     {
         _context = context;
         _openAIOptions = openAIOptions.Value;
+        _summaryOptions = summaryOptions.Value;
         _logger = logger;
 
         if (!string.IsNullOrEmpty(_openAIOptions.Endpoint) && !string.IsNullOrEmpty(_openAIOptions.ApiKey))
@@ -49,7 +52,7 @@ public class WeeklySummaryService : IWeeklySummaryService
             };
 
             var openAIClient = new OpenAIClient(credential, clientOptions);
-            _chatClient = openAIClient.GetChatClient(_openAIOptions.DeploymentName);
+            _chatClient = openAIClient.GetChatClient(_summaryOptions.DeploymentName);
         }
     }
 
@@ -305,7 +308,7 @@ public class WeeklySummaryService : IWeeklySummaryService
         var options = new ChatCompletionOptions();
 
         // 推論モデルでなければ Temperature を設定
-        if (!ModelCapabilities.IsReasoningModel(_openAIOptions.DeploymentName))
+        if (!ModelCapabilities.IsReasoningModel(_summaryOptions.DeploymentName))
         {
             options.Temperature = 0.5f;
         }
