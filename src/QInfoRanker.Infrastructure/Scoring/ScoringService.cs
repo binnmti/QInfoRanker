@@ -8,11 +8,88 @@ using OpenAI;
 using OpenAI.Chat;
 using OpenAI.Responses;
 using QInfoRanker.Core.Entities;
+using QInfoRanker.Core.Enums;
 using QInfoRanker.Core.Interfaces.Services;
 
 #pragma warning disable OPENAI001 // Type is for evaluation purposes only
 
 namespace QInfoRanker.Infrastructure.Scoring;
+
+/// <summary>
+/// 評価基準の定数定義（プロンプト生成で共通使用）
+/// </summary>
+public static class EvaluationCriteria
+{
+    /// <summary>各評価項目の最大点数</summary>
+    public const int MaxScorePerItem = 20;
+
+    /// <summary>評価項目数</summary>
+    public const int ItemCount = 5;
+
+    /// <summary>合計の最大点数</summary>
+    public const int MaxTotalScore = MaxScorePerItem * ItemCount; // 100
+
+    /// <summary>関連性の除外閾値（この値未満は除外）</summary>
+    public const int RelevanceExclusionThreshold = 6;
+
+    /// <summary>評価項目の説明（プロンプト用）</summary>
+    public static string GetEvaluationItemsDescription() => $@"評価項目（各0-{MaxScorePerItem}点、合計{MaxTotalScore}点満点）:
+- relevance: キーワードとの関連性（{RelevanceExclusionThreshold}未満は除外対象）
+- technical: 技術的深さと重要性
+- novelty: 新規性・独自性
+- impact: 実用的な影響度
+- quality: 情報の質と信頼性";
+
+    /// <summary>Judge用JSON出力フォーマット（プロンプト用）</summary>
+    public static string GetJudgeJsonFormat() => $@"{{
+  ""relevance"": 0-{MaxScorePerItem}の整数,
+  ""relevance_reason"": ""関連性の評価理由"",
+  ""technical"": 0-{MaxScorePerItem}の整数,
+  ""technical_reason"": ""技術的深さの評価理由"",
+  ""novelty"": 0-{MaxScorePerItem}の整数,
+  ""novelty_reason"": ""新規性の評価理由"",
+  ""impact"": 0-{MaxScorePerItem}の整数,
+  ""impact_reason"": ""影響度の評価理由"",
+  ""quality"": 0-{MaxScorePerItem}の整数,
+  ""quality_reason"": ""品質の評価理由"",
+  ""total"": 0-{MaxTotalScore}の整数（各項目の合計）,
+  ""summary_ja"": ""記事の要約（日本語、200字程度）""
+}}";
+
+    /// <summary>MetaJudge用JSON出力フォーマット（プロンプト用）</summary>
+    public static string GetMetaJudgeJsonFormat() => $@"{{
+  ""final_relevance"": 0-{MaxScorePerItem}の整数,
+  ""final_technical"": 0-{MaxScorePerItem}の整数,
+  ""final_novelty"": 0-{MaxScorePerItem}の整数,
+  ""final_impact"": 0-{MaxScorePerItem}の整数,
+  ""final_quality"": 0-{MaxScorePerItem}の整数,
+  ""final_total"": 0-{MaxTotalScore}の整数,
+  ""confidence"": 0.0-1.0の小数（判断の信頼度）,
+  ""rationale"": ""最終判断の根拠（評価者間の差異がある場合はその解決理由も含む）"",
+  ""consolidated_summary"": ""統合された要約（日本語、300字程度）""
+}}";
+
+    /// <summary>要約ガイドライン（共通）</summary>
+    public const string SummaryGuidelines = @"【summary_ja の書き方】
+250-400文字程度で、記事固有の具体的な情報を簡潔に記述すること。技術者がこの要約だけで記事を読むべきか判断できる情報量を提供すること。
+
+■ 禁止事項（これらを使うと評価が下がります）:
+- 「この記事は」「本記事では」で始める
+- 「〜が期待されます」「〜に寄与する可能性があります」「〜に注目が集まっています」
+- 「大きな影響を与える」「重要な意味を持つ」などの抽象的評価
+- 「技術者必見」「興味深い」などの主観的形容
+
+■ 必須事項:
+- 具体的な技術名・手法名・数値・結果を含める
+- 何が・どうなった（または、どうする）を明確に書く
+- 冒頭から本題に入る
+
+■ 良い例:
+「GPT-4oのファインチューニングAPIが公開された。カスタムデータで追加学習が可能になり、1000サンプルで約15%の精度向上を達成。料金はベースモデルの2倍。」
+
+■ 悪い例:
+「この記事はGPT-4oのファインチューニングについて解説しています。AI技術の発展に大きな影響が期待されます。技術者にとって重要な情報が含まれています。」";
+}
 
 public class ScoringService : IScoringService
 {
@@ -215,12 +292,12 @@ public class ScoringService : IScoringService
 
     public double CalculateFinalScore(Article article, Source source)
     {
-        // 5項目×20点 = 100点満点スコアリング
-        // - relevance: Stage 2での最終関連性評価 (0-20)
-        // - technical: 技術的深さ (0-20)
-        // - novelty: 新規性 (0-20)
-        // - impact: 実用性 (0-20)
-        // - quality: 情報の質 (0-20)
+        // 評価基準: EvaluationCriteria.ItemCount項目 × EvaluationCriteria.MaxScorePerItem点 = MaxTotalScore点満点
+        // - relevance: Stage 2での最終関連性評価
+        // - technical: 技術的深さ
+        // - novelty: 新規性
+        // - impact: 実用性
+        // - quality: 情報の質
 
         // Stage 2でのrelevance評価がある場合はそれを使用、なければStage 1の値を2倍
         var relevanceScore = article.EnsembleRelevanceScore ?? ((article.RelevanceScore ?? 5) * 2);
@@ -231,7 +308,7 @@ public class ScoringService : IScoringService
                         (article.ImpactScore ?? 0) +
                         (article.QualityScore ?? 0);
 
-        return Math.Min(100, Math.Max(0, finalScore));
+        return Math.Min(EvaluationCriteria.MaxTotalScore, Math.Max(0, finalScore));
     }
 
     public double NormalizeNativeScore(int? nativeScore, string sourceName)
@@ -836,57 +913,32 @@ public class ScoringService : IScoringService
         var keywordsStr = string.Join(", ", keywords);
         var articlesJsonStr = JsonSerializer.Serialize(articlesJson, new JsonSerializerOptions { WriteIndented = false });
 
-        var prompt = $$"""
-            以下の技術記事（キーワード: {{keywordsStr}}）を評価し、日本語で要約してください。
+        var prompt = $@"以下の技術記事（キーワード: {keywordsStr}）を評価し、日本語で要約してください。
 
-            評価項目（各0-20点、合計100点満点）:
-            - relevance: キーワードとの最終関連性（詳細を見た上での再評価）
-            - technical: 技術的深さと重要性
-            - novelty: 新規性・独自性
-            - impact: 実用的な影響度・有用性
-            - quality: 情報の質と信頼性
+{EvaluationCriteria.GetEvaluationItemsDescription()}
 
-            ※ relevance が 6 未満の場合は除外対象となるため、詳細を確認して正確に評価してください
+※ relevance が {EvaluationCriteria.RelevanceExclusionThreshold} 未満の場合は除外対象となるため、詳細を確認して正確に評価してください
 
-            記事一覧:
-            {{articlesJsonStr}}
+記事一覧:
+{articlesJsonStr}
 
-            JSON形式で回答:
-            {
-              "evaluations": [
-                {
-                  "id": 1,
-                  "relevance": 16,
-                  "technical": 14,
-                  "novelty": 12,
-                  "impact": 14,
-                  "quality": 14,
-                  "total": 70,
-                  "summary_ja": "要約をここに記載..."
-                }
-              ]
-            }
+JSON形式で回答:
+{{
+  ""evaluations"": [
+    {{
+      ""id"": 1,
+      ""relevance"": 16,
+      ""technical"": 14,
+      ""novelty"": 12,
+      ""impact"": 14,
+      ""quality"": 14,
+      ""total"": 70,
+      ""summary_ja"": ""要約をここに記載...""
+    }}
+  ]
+}}
 
-            【summary_ja の書き方】
-            250-400文字程度で、記事固有の具体的な情報を簡潔に記述すること。技術者がこの要約だけで記事を読むべきか判断できる情報量を提供すること。
-
-            ■ 禁止事項（これらを使うと評価が下がります）:
-            - 「この記事は」「本記事では」で始める
-            - 「〜が期待されます」「〜に寄与する可能性があります」「〜に注目が集まっています」
-            - 「大きな影響を与える」「重要な意味を持つ」などの抽象的評価
-            - 「技術者必見」「興味深い」などの主観的形容
-
-            ■ 必須事項:
-            - 具体的な技術名・手法名・数値・結果を含める
-            - 何が・どうなった（または、どうする）を明確に書く
-            - 冒頭から本題に入る
-
-            ■ 良い例:
-            「GPT-4oのファインチューニングAPIが公開された。カスタムデータで追加学習が可能になり、1000サンプルで約15%の精度向上を達成。料金はベースモデルの2倍。」
-
-            ■ 悪い例:
-            「この記事はGPT-4oのファインチューニングについて解説しています。AI技術の発展に大きな影響が期待されます。技術者にとって重要な情報が含まれています。」
-            """;
+{EvaluationCriteria.SummaryGuidelines}";
 
         var messages = new List<ChatMessage>
         {
@@ -1018,12 +1070,12 @@ public class ScoringService : IScoringService
                         results.Add(new ArticleQuality
                         {
                             ArticleId = article.Id,
-                            Relevance = Math.Clamp(eval.Relevance, 0, 20),
-                            Technical = Math.Clamp(eval.Technical, 0, 20),
-                            Novelty = Math.Clamp(eval.Novelty, 0, 20),
-                            Impact = Math.Clamp(eval.Impact, 0, 20),
-                            Quality = Math.Clamp(eval.Quality, 0, 20),
-                            Total = Math.Clamp(eval.Total, 0, 100),
+                            Relevance = Math.Clamp(eval.Relevance, 0, EvaluationCriteria.MaxScorePerItem),
+                            Technical = Math.Clamp(eval.Technical, 0, EvaluationCriteria.MaxScorePerItem),
+                            Novelty = Math.Clamp(eval.Novelty, 0, EvaluationCriteria.MaxScorePerItem),
+                            Impact = Math.Clamp(eval.Impact, 0, EvaluationCriteria.MaxScorePerItem),
+                            Quality = Math.Clamp(eval.Quality, 0, EvaluationCriteria.MaxScorePerItem),
+                            Total = Math.Clamp(eval.Total, 0, EvaluationCriteria.MaxTotalScore),
                             SummaryJa = eval.SummaryJa ?? ""
                         });
                     }
@@ -1271,10 +1323,11 @@ public class ScoringService : IScoringService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var ensembleResult = await EvaluateEnsembleAsync(article, keywordList, cancellationToken);
+                    var ensembleResult = await EvaluateEnsembleAsync(article, keywordList, cancellationToken);
             ensembleResults.Add(ensembleResult);
 
             // 結果をArticleに反映
+            article.EnsembleRelevanceScore = ensembleResult.FinalRelevance;
             article.TechnicalScore = ensembleResult.FinalTechnical;
             article.NoveltyScore = ensembleResult.FinalNovelty;
             article.ImpactScore = ensembleResult.FinalImpact;
@@ -1572,10 +1625,10 @@ public class ScoringService : IScoringService
         var threshold = _ensembleOptions.MetaJudge.ContradictionThreshold;
         var hasContradiction = false;
 
-        var dimensions = new[] { "Technical", "Novelty", "Impact", "Quality" };
+        var dimensions = new[] { "Relevance", "Technical", "Novelty", "Impact", "Quality" };
         var getters = new Func<JudgeEvaluation, int>[]
         {
-            e => e.Technical, e => e.Novelty, e => e.Impact, e => e.Quality
+            e => e.Relevance, e => e.Technical, e => e.Novelty, e => e.Impact, e => e.Quality
         };
 
         for (int i = 0; i < dimensions.Length; i++)
@@ -1613,22 +1666,24 @@ public class ScoringService : IScoringService
         var totalWeight = evaluations.Sum(e => e.Weight);
         if (totalWeight == 0) totalWeight = 1;
 
+        result.FinalRelevance = (int)Math.Round(evaluations.Sum(e => e.Relevance * e.Weight) / totalWeight);
         result.FinalTechnical = (int)Math.Round(evaluations.Sum(e => e.Technical * e.Weight) / totalWeight);
         result.FinalNovelty = (int)Math.Round(evaluations.Sum(e => e.Novelty * e.Weight) / totalWeight);
         result.FinalImpact = (int)Math.Round(evaluations.Sum(e => e.Impact * e.Weight) / totalWeight);
         result.FinalQuality = (int)Math.Round(evaluations.Sum(e => e.Quality * e.Weight) / totalWeight);
-        result.FinalTotal = result.FinalTechnical + result.FinalNovelty + result.FinalImpact + result.FinalQuality;
+        result.FinalTotal = result.FinalRelevance + result.FinalTechnical + result.FinalNovelty + result.FinalImpact + result.FinalQuality;
 
         // 信頼度はコンセンサス度合いから計算（標準偏差の逆数）
         var stdDevs = new[]
         {
+            CalculateStdDev(evaluations.Select(e => (double)e.Relevance)),
             CalculateStdDev(evaluations.Select(e => (double)e.Technical)),
             CalculateStdDev(evaluations.Select(e => (double)e.Novelty)),
             CalculateStdDev(evaluations.Select(e => (double)e.Impact)),
             CalculateStdDev(evaluations.Select(e => (double)e.Quality))
         };
         var avgStdDev = stdDevs.Average();
-        result.Confidence = Math.Max(0, Math.Min(1, 1 - (avgStdDev / 25))); // 25点満点の軸を想定
+        result.Confidence = Math.Max(0, Math.Min(1, 1 - (avgStdDev / EvaluationCriteria.MaxScorePerItem)));
 
         // サマリーは最初のJudgeのものを使用（後でMeta-Judgeが統合する場合は上書きされる）
         result.FinalSummaryJa = evaluations.FirstOrDefault()?.SummaryJa ?? string.Empty;
@@ -1636,6 +1691,7 @@ public class ScoringService : IScoringService
 
     private void ApplyMetaJudgeResults(EnsembleEvaluationResult result, MetaJudgeResult metaResult)
     {
+        result.FinalRelevance = metaResult.FinalRelevance;
         result.FinalTechnical = metaResult.FinalTechnical;
         result.FinalNovelty = metaResult.FinalNovelty;
         result.FinalImpact = metaResult.FinalImpact;
@@ -1659,6 +1715,7 @@ public class ScoringService : IScoringService
         if (twoStageResult.QualityResult.Evaluations.Any())
         {
             var quality = twoStageResult.QualityResult.Evaluations.First();
+            result.FinalRelevance = quality.Relevance;
             result.FinalTechnical = quality.Technical;
             result.FinalNovelty = quality.Novelty;
             result.FinalImpact = quality.Impact;
@@ -1699,10 +1756,54 @@ public class ScoringService : IScoringService
 
     #region Judge/Meta-Judge プロンプト
 
+    /// <summary>
+    /// ソースカテゴリに基づいて要約モードを判定
+    /// </summary>
+    private enum SummaryMode
+    {
+        /// <summary>既に要約されている（翻訳のみ）</summary>
+        TranslateOnly,
+        /// <summary>全文から要約を生成</summary>
+        Summarize,
+        /// <summary>情報不足（タイトルのみ等）</summary>
+        Limited
+    }
+
+    private SummaryMode GetSummaryMode(Article article)
+    {
+        var category = article.Source?.Category ?? SourceCategory.Other;
+
+        return category switch
+        {
+            // ニュース系・学術系: RSSや論文のAbstractは既に要約済み
+            SourceCategory.News => SummaryMode.TranslateOnly,
+            SourceCategory.Academic => SummaryMode.TranslateOnly,
+            SourceCategory.Medical => SummaryMode.TranslateOnly,
+
+            // 技術記事系: 全文があれば要約、なければ限定的
+            SourceCategory.Technology => !string.IsNullOrEmpty(article.Content)
+                ? SummaryMode.Summarize
+                : SummaryMode.Limited,
+            SourceCategory.Entertainment => !string.IsNullOrEmpty(article.Content)
+                ? SummaryMode.Summarize
+                : SummaryMode.Limited,
+
+            // SNS系: 本文が短いことが多いのでケースバイケース
+            SourceCategory.Social => (article.Content?.Length ?? article.Summary?.Length ?? 0) > 500
+                ? SummaryMode.Summarize
+                : SummaryMode.TranslateOnly,
+
+            // その他: 情報があれば要約
+            _ => !string.IsNullOrEmpty(article.Content)
+                ? SummaryMode.Summarize
+                : SummaryMode.Limited
+        };
+    }
+
     private string BuildJudgeSystemPrompt(string? specialty)
     {
-        var basePrompt = @"あなたは技術記事を評価する専門家です。
-各項目を0-25点で採点し、必ず採点理由を具体的に説明してください。
+        var basePrompt = $@"あなたは技術記事を評価する専門家です。
+各項目を0-{EvaluationCriteria.MaxScorePerItem}点で採点し、必ず採点理由を具体的に説明してください。
 回答はJSON形式で出力してください。";
 
         var specialtyPrompt = specialty switch
@@ -1721,30 +1822,61 @@ public class ScoringService : IScoringService
 
     private string BuildJudgeUserPrompt(Article article, List<string> keywords)
     {
+        var summaryMode = GetSummaryMode(article);
+        var category = article.Source?.Category ?? SourceCategory.Other;
+
+        // 記事本文: 全文があれば使用、なければSummary
+        var articleContent = !string.IsNullOrEmpty(article.Content)
+            ? TruncateText(article.Content, 3000)  // 全文は3000文字まで
+            : TruncateText(article.Summary, 1000);
+
+        var summaryInstruction = GetSummaryInstruction(summaryMode);
+
         return $@"以下の技術記事を評価してください。
 
 関連キーワード: {string.Join(", ", keywords)}
 
 【記事情報】
 タイトル: {article.Title}
-ソース: {article.Source?.Name ?? "Unknown"}
+ソース: {article.Source?.Name ?? "Unknown"} (カテゴリ: {category})
 URL: {article.Url}
-概要: {TruncateText(article.Summary, 1000)}
+本文/概要:
+{articleContent}
+
+{summaryInstruction}
+
+{EvaluationCriteria.GetEvaluationItemsDescription()}
 
 以下のJSON形式で回答してください:
-{{
-  ""technical"": 0-25の整数,
-  ""technical_reason"": ""技術的深さの評価理由"",
-  ""novelty"": 0-25の整数,
-  ""novelty_reason"": ""新規性の評価理由"",
-  ""impact"": 0-25の整数,
-  ""impact_reason"": ""影響度の評価理由"",
-  ""quality"": 0-25の整数,
-  ""quality_reason"": ""品質の評価理由"",
-  ""total"": 0-100の整数（各項目の合計）,
-  ""summary_ja"": ""記事の要約（日本語、200字程度）""
-}}";
+{EvaluationCriteria.GetJudgeJsonFormat()}";
     }
+
+    /// <summary>
+    /// SummaryModeに応じた要約指示を取得（Judge/MetaJudge共通）
+    /// </summary>
+    private static string GetSummaryInstruction(SummaryMode mode) => mode switch
+    {
+        SummaryMode.TranslateOnly => @"【要約タスク: 翻訳・整形】
+この記事は既に要約/Abstract形式です。
+- 英語の場合は日本語に翻訳
+- 日本語の場合はそのまま活用（文体を整える程度）
+- 「この記事は」「本記事では」等の冗長な前置きは不要
+- 具体的な情報（数値・名称・結果）を保持",
+
+        SummaryMode.Summarize => @"【要約タスク: 全文要約】
+この記事は全文または本文の一部です。
+- 重要なポイントを200字程度に凝縮
+- 冒頭から本題に入る（「この記事は」で始めない）
+- 具体的な技術名・数値・結果を含める",
+
+        SummaryMode.Limited => @"【要約タスク: 限定情報】
+この記事は限られた情報のみです。
+- タイトルと概要から推測できる内容を簡潔に記述
+- 「〜について」等の曖昧な表現は避け、具体的に
+- 情報が不足していれば短くてもOK",
+
+        _ => ""
+    };
 
     private string BuildMetaJudgeSystemPrompt()
     {
@@ -1762,36 +1894,68 @@ URL: {article.Url}
 
     private string BuildMetaJudgeUserPrompt(Article article, List<string> keywords, List<JudgeEvaluation> evaluations)
     {
+        var summaryMode = GetSummaryMode(article);
+        var category = article.Source?.Category ?? SourceCategory.Other;
+
         var evaluationsSummary = string.Join("\n", evaluations.Select(e =>
             $@"【{e.JudgeDisplayName}】(重み: {e.Weight})
+  Relevance: {e.Relevance} - {e.RelevanceReason}
   Technical: {e.Technical} - {e.TechnicalReason}
   Novelty: {e.Novelty} - {e.NoveltyReason}
   Impact: {e.Impact} - {e.ImpactReason}
   Quality: {e.Quality} - {e.QualityReason}
   要約: {e.SummaryJa}"));
 
+        var summaryRule = GetMetaJudgeSummaryRule(summaryMode);
+
         return $@"以下の記事に対する複数評価者の判断を統合してください。
 
 【記事】
 タイトル: {article.Title}
-ソース: {article.Source?.Name ?? "Unknown"}
+ソース: {article.Source?.Name ?? "Unknown"} (カテゴリ: {category})
 キーワード: {string.Join(", ", keywords)}
 
 【各評価者の判断】
 {evaluationsSummary}
 
+{EvaluationCriteria.GetEvaluationItemsDescription()}
+
 以下のJSON形式で最終判断を出力してください:
-{{
-  ""final_technical"": 0-25の整数,
-  ""final_novelty"": 0-25の整数,
-  ""final_impact"": 0-25の整数,
-  ""final_quality"": 0-25の整数,
-  ""final_total"": 0-100の整数,
-  ""confidence"": 0.0-1.0の小数（判断の信頼度）,
-  ""rationale"": ""最終判断の根拠（評価者間の差異がある場合はその解決理由も含む）"",
-  ""consolidated_summary"": ""統合された要約（日本語、300字程度）""
-}}";
+{EvaluationCriteria.GetMetaJudgeJsonFormat()}
+
+{summaryRule}";
     }
+
+    /// <summary>
+    /// MetaJudge用の要約統合ルールを取得
+    /// </summary>
+    private static string GetMetaJudgeSummaryRule(SummaryMode mode) => mode switch
+    {
+        SummaryMode.TranslateOnly => @"【要約統合ルール: 翻訳・整形モード】
+元情報は既に要約/Abstract形式のため:
+- 各Judgeの要約から最も正確で具体的なものをベースに統合
+- 英語情報は自然な日本語に翻訳
+- 「この記事は」「本記事では」「〜について報じている」等の前置きは削除
+- 元の具体的情報（数値・固有名詞・結果）を必ず保持",
+
+        SummaryMode.Summarize => @"【要約統合ルール: 全文要約モード】
+元情報は全文/本文のため:
+- 各Judgeの要約を統合し、重要ポイントを凝縮
+- 冒頭から本題に入る（「この記事は」で始めない）
+- 具体的な技術名・数値・結果を含める
+- 300字程度で情報密度の高い要約に",
+
+        SummaryMode.Limited => @"【要約統合ルール: 限定情報モード】
+元情報が限られているため:
+- 各Judgeの要約から情報を補完・統合
+- 推測は避け、確実な情報のみ記述
+- 短くても正確な要約を優先",
+
+        _ => @"【要約ルール】
+- 冒頭から本題に入る（「この記事は」「本記事では」で始めない）
+- 具体的な技術名・数値・結果を含める
+- 抽象的な評価（「注目される」「期待される」等）は避ける"
+    };
 
     private JudgeEvaluation? ParseJudgeEvaluation(string content, JudgeModelConfiguration judgeConfig)
     {
@@ -1818,6 +1982,8 @@ URL: {article.Url}
                 JudgeId = judgeConfig.JudgeId,
                 JudgeDisplayName = judgeConfig.EffectiveDisplayName,
                 Weight = judgeConfig.Weight,
+                Relevance = GetScoreValue(root, "relevance"),
+                RelevanceReason = root.TryGetProperty("relevance_reason", out var rr) ? rr.GetString() ?? "" : "",
                 Technical = GetScoreValue(root, "technical"),
                 TechnicalReason = root.TryGetProperty("technical_reason", out var tr) ? tr.GetString() ?? "" : "",
                 Novelty = GetScoreValue(root, "novelty"),
@@ -1831,15 +1997,15 @@ URL: {article.Url}
             };
 
             // スコアが全て0の場合は警告
-            if (evaluation.Technical == 0 && evaluation.Novelty == 0 && evaluation.Impact == 0 && evaluation.Quality == 0)
+            if (evaluation.Relevance == 0 && evaluation.Technical == 0 && evaluation.Novelty == 0 && evaluation.Impact == 0 && evaluation.Quality == 0)
             {
                 _logger.LogWarning("Judge {JudgeId} returned all zero scores. Raw response: {Content}",
                     judgeConfig.JudgeId, content.Substring(0, Math.Min(1000, content.Length)));
             }
             else
             {
-                _logger.LogInformation("Judge {JudgeId} scores: T={Technical}, N={Novelty}, I={Impact}, Q={Quality}, Total={Total}",
-                    judgeConfig.JudgeId, evaluation.Technical, evaluation.Novelty, evaluation.Impact, evaluation.Quality, evaluation.Total);
+                _logger.LogInformation("Judge {JudgeId} scores: R={Relevance}, T={Technical}, N={Novelty}, I={Impact}, Q={Quality}, Total={Total}",
+                    judgeConfig.JudgeId, evaluation.Relevance, evaluation.Technical, evaluation.Novelty, evaluation.Impact, evaluation.Quality, evaluation.Total);
             }
 
             return evaluation;
@@ -1862,6 +2028,7 @@ URL: {article.Url}
 
             return new MetaJudgeResult
             {
+                FinalRelevance = root.TryGetProperty("final_relevance", out var rel) ? rel.GetInt32() : 0,
                 FinalTechnical = root.TryGetProperty("final_technical", out var t) ? t.GetInt32() : 0,
                 FinalNovelty = root.TryGetProperty("final_novelty", out var n) ? n.GetInt32() : 0,
                 FinalImpact = root.TryGetProperty("final_impact", out var i) ? i.GetInt32() : 0,

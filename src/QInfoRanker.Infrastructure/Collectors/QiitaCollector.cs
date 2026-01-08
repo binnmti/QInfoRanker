@@ -59,6 +59,7 @@ public class QiitaCollector : BaseCollector
                     Title = item.Title,
                     Url = item.Url,
                     Summary = item.Body?.Length > 500 ? item.Body[..500] + "..." : item.Body,
+                    Content = item.Body, // 全文を保存（要約生成用）
                     NativeScore = item.LikesCount,
                     PublishedAt = item.CreatedAt,
                     CollectedAt = DateTime.UtcNow

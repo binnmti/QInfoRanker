@@ -121,6 +121,7 @@ public class NoteCollector : BaseCollector
                     Title = name,
                     Url = url,
                     Summary = body?.Length > 500 ? body[..500] + "..." : body,
+                    Content = body, // 全文を保存（要約生成用）
                     NativeScore = likeCount,
                     PublishedAt = publishedDate,
                     CollectedAt = DateTime.UtcNow

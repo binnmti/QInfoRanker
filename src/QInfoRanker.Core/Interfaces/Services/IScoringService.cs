@@ -157,11 +157,13 @@ public class JudgeEvaluation
 {
     public string JudgeId { get; set; } = string.Empty;
     public string JudgeDisplayName { get; set; } = string.Empty;
+    public int Relevance { get; set; }  // キーワードとの関連性 (0-20)
     public int Technical { get; set; }
     public int Novelty { get; set; }
     public int Impact { get; set; }
     public int Quality { get; set; }
     public int Total { get; set; }
+    public string RelevanceReason { get; set; } = string.Empty;
     public string TechnicalReason { get; set; } = string.Empty;
     public string NoveltyReason { get; set; } = string.Empty;
     public string ImpactReason { get; set; } = string.Empty;
@@ -178,6 +180,7 @@ public class JudgeEvaluation
 /// </summary>
 public class MetaJudgeResult
 {
+    public int FinalRelevance { get; set; }  // 最終関連性スコア (0-20)
     public int FinalTechnical { get; set; }
     public int FinalNovelty { get; set; }
     public int FinalImpact { get; set; }
@@ -215,6 +218,7 @@ public class EnsembleEvaluationResult
     public int ArticleId { get; set; }
     public List<JudgeEvaluation> JudgeEvaluations { get; set; } = new();
     public MetaJudgeResult? MetaJudgeResult { get; set; }
+    public int FinalRelevance { get; set; }  // キーワードとの関連性 (0-20)
     public int FinalTechnical { get; set; }
     public int FinalNovelty { get; set; }
     public int FinalImpact { get; set; }
