@@ -54,15 +54,8 @@
     <div class="card-body">
         <div class="mb-3">
             <strong>状態:</strong>
-            @if (EnsembleOptions.Value.EnableEnsemble)
-            {
-                <span class="badge bg-success ms-2">有効</span>
-            }
-            else
-            {
-                <span class="badge bg-secondary ms-2">無効</span>
-            }
-            <small class="text-muted ms-2">(appsettings.json で設定)</small>
+            <span class="badge bg-success ms-2">常に有効</span>
+            <small class="text-muted ms-2">(アンサンブル評価は常に使用されます)</small>
         </div>
 
         <div class="row mb-3">
@@ -74,12 +67,6 @@
 
                     <dt class="col-sm-7">Judgeタイムアウト</dt>
                     <dd class="col-sm-5">@(EnsembleOptions.Value.JudgeTimeoutMs / 1000)秒</dd>
-
-                    <dt class="col-sm-7">コンセンサス閾値</dt>
-                    <dd class="col-sm-5">@EnsembleOptions.Value.ConsensusThreshold</dd>
-
-                    <dt class="col-sm-7">コンセンサス時Meta-Judgeスキップ</dt>
-                    <dd class="col-sm-5">@(EnsembleOptions.Value.SkipMetaJudgeOnConsensus ? "はい" : "いいえ")</dd>
                 </dl>
             </div>
             <div class="col-md-6">
@@ -128,7 +115,7 @@
                     {
                         <tr class="@(judge.IsEnabled ? "" : "text-muted")">
                             <td>@judge.JudgeId</td>
-                            <td>@judge.DisplayName</td>
+                            <td>@judge.EffectiveDisplayName</td>
                             <td><code>@judge.DeploymentName</code></td>
                             <td>@judge.Weight</td>
                             <td>@(judge.Specialty ?? "汎用")</td>

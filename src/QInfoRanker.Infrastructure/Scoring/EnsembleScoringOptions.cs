@@ -3,19 +3,14 @@ namespace QInfoRanker.Infrastructure.Scoring;
 /// <summary>
 /// アンサンブル評価システムの設定
 /// 複数のJudgeモデルによる並列評価とMeta-Judgeによる統合評価を構成
+/// 常にアンサンブル評価を使用（EnableEnsembleフラグは廃止）
 /// </summary>
 public class EnsembleScoringOptions
 {
     public const string SectionName = "EnsembleScoring";
 
     /// <summary>
-    /// アンサンブル評価を有効化するか
-    /// false の場合は従来の単一モデル評価を使用
-    /// </summary>
-    public bool EnableEnsemble { get; set; } = false;
-
-    /// <summary>
-    /// Judge モデルの構成リスト
+    /// Judge モデルの構成リスト（2つ推奨：汎用評価 + 技術評価）
     /// </summary>
     public List<JudgeModelConfiguration> Judges { get; set; } = new();
 
@@ -25,20 +20,9 @@ public class EnsembleScoringOptions
     public MetaJudgeConfiguration MetaJudge { get; set; } = new();
 
     /// <summary>
-    /// コンセンサス判定の閾値（各軸のスコア差がこの値以下なら合意とみなす）
-    /// </summary>
-    public double ConsensusThreshold { get; set; } = 5.0;
-
-    /// <summary>
-    /// コンセンサスがある場合にMeta-Judgeをスキップするか
-    /// trueの場合、全Judgeが合意していればコスト削減のためMeta-Judgeを省略
-    /// </summary>
-    public bool SkipMetaJudgeOnConsensus { get; set; } = true;
-
-    /// <summary>
     /// 同時に実行するJudgeの最大数
     /// </summary>
-    public int MaxParallelJudges { get; set; } = 3;
+    public int MaxParallelJudges { get; set; } = 2;
 
     /// <summary>
     /// 各Judgeのタイムアウト（ミリ秒）
@@ -58,8 +42,14 @@ public class JudgeModelConfiguration
 
     /// <summary>
     /// 表示名（例: "gpt-5 (汎用評価)"）
+    /// 未設定の場合はJudgeIdが使用される
     /// </summary>
     public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 実効表示名（DisplayNameが空の場合はJudgeIdを使用）
+    /// </summary>
+    public string EffectiveDisplayName => string.IsNullOrEmpty(DisplayName) ? JudgeId : DisplayName;
 
     /// <summary>
     /// Azure OpenAI デプロイメント名

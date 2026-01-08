@@ -76,6 +76,18 @@ public class CollectionProgressNotifier : ICollectionProgressNotifier
 
     public Task NotifyArticlesScoredAsync(ArticlesScoredEvent evt)
     {
+        var status = _queue.GetStatus(evt.KeywordId);
+        if (status != null)
+        {
+            // スコア済み件数を累積更新
+            status.ArticlesScored += evt.ScoredCount;
+
+            // このソースの採点待ちプレビューをクリア（スコアリング完了）
+            status.PendingScoringPreviews.RemoveAll(p => p.SourceName == evt.SourceName);
+
+            _queue.UpdateStatus(evt.KeywordId, status);
+        }
+
         _logger.LogDebug("Articles scored: {Source} - {Count} articles, avg={AvgScore:F1}",
             evt.SourceName, evt.ScoredCount, evt.AverageScore);
 

@@ -71,9 +71,38 @@
     <div class="mb-3">
         @foreach (var status in collectionStatuses)
         {
+            // 進捗計算: ソース単位で均等に進捗を計算
+            // 各ソースは 収集→スコアリング の順で処理される
+            // SourceIndex = 現在処理中のソース番号 (1-based)
+
+            // 完了したソース数 (現在ソースの前まで)
+            var completedSources = status.SourceIndex - 1;
+
+            // 現在ソースの進捗比率 (0〜1)
+            double currentSourceProgress = 0;
+            if (status.State == CollectionState.Collecting)
+            {
+                currentSourceProgress = 0.3; // 収集中は30%
+            }
+            else if (status.State == CollectionState.Scoring)
+            {
+                currentSourceProgress = 0.7; // スコアリング中は70%
+            }
+            else if (status.State == CollectionState.Completed || status.State == CollectionState.Failed)
+            {
+                currentSourceProgress = 1.0; // 完了/失敗は100%
+            }
+
+            // 全体進捗 = (完了ソース数 + 現在ソースの進捗) / 全ソース数 × 100%
             var progressPercent = status.TotalSources > 0
-                ? (int)(status.SourceIndex * 100.0 / status.TotalSources)
+                ? (int)((completedSources + currentSourceProgress) * 100.0 / status.TotalSources)
                 : 0;
+
+            // 完了時は100%に固定
+            if (status.State == CollectionState.Completed)
+            {
+                progressPercent = 100;
+            }
             var isFailed = status.State == CollectionState.Failed;
             var alertClass = isFailed ? "alert-danger" : (status.HasFatalError ? "alert-danger" : "alert-info");
 
@@ -389,16 +418,29 @@ else
                     }
                     @{
                         var relevance20 = (article.RelevanceScore ?? 5) * 2;
+                        var isScored = article.LlmScore.HasValue;
                     }
-                    <span class="ms-auto d-flex align-items-center gap-1"
-                          title="5項目×20点=100点満点&#10;技術:@(article.TechnicalScore ?? 0) + 新規:@(article.NoveltyScore ?? 0) + 影響:@(article.ImpactScore ?? 0) + 品質:@(article.QualityScore ?? 0) + 関連:@(relevance20) = @article.FinalScore.ToString("F0")">
-                        <span class="badge bg-info" style="font-size:0.6rem" title="技術的深さ (20点)">技@(article.TechnicalScore ?? 0)</span>
-                        <span class="badge bg-success" style="font-size:0.6rem" title="新規性 (20点)">新@(article.NoveltyScore ?? 0)</span>
-                        <span class="badge bg-warning text-dark" style="font-size:0.6rem" title="影響度 (20点)">影@(article.ImpactScore ?? 0)</span>
-                        <span class="badge bg-secondary" style="font-size:0.6rem" title="執筆品質 (20点)">質@(article.QualityScore ?? 0)</span>
-                        <span class="badge bg-primary" style="font-size:0.6rem" title="関連性 (20点)">関@(relevance20)</span>
-                        <strong class="ms-1">@article.FinalScore.ToString("F0")</strong><span style="font-size:0.7rem">点</span>
-                    </span>
+                    @if (isScored)
+                    {
+                        <span class="ms-auto d-flex align-items-center gap-1"
+                              title="5項目×20点=100点満点&#10;技術:@(article.TechnicalScore ?? 0) + 新規:@(article.NoveltyScore ?? 0) + 影響:@(article.ImpactScore ?? 0) + 品質:@(article.QualityScore ?? 0) + 関連:@(relevance20) = @article.FinalScore.ToString("F0")">
+                            <span class="badge bg-info" style="font-size:0.6rem" title="技術的深さ (20点)">技@(article.TechnicalScore ?? 0)</span>
+                            <span class="badge bg-success" style="font-size:0.6rem" title="新規性 (20点)">新@(article.NoveltyScore ?? 0)</span>
+                            <span class="badge bg-warning text-dark" style="font-size:0.6rem" title="影響度 (20点)">影@(article.ImpactScore ?? 0)</span>
+                            <span class="badge bg-secondary" style="font-size:0.6rem" title="執筆品質 (20点)">質@(article.QualityScore ?? 0)</span>
+                            <span class="badge bg-primary" style="font-size:0.6rem" title="関連性 (20点)">関@(relevance20)</span>
+                            <strong class="ms-1">@article.FinalScore.ToString("F0")</strong><span style="font-size:0.7rem">点</span>
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="ms-auto">
+                            <span class="badge bg-warning text-dark" style="font-size:0.7rem">
+                                <span class="spinner-border spinner-border-sm me-1" style="width: 0.6rem; height: 0.6rem;"></span>
+                                採点中...
+                            </span>
+                        </span>
+                    }
                 </div>
 
                 @* Summary (prefer Japanese) - expanded content *@
@@ -554,16 +596,27 @@ else
             allArticles = allArticles.Where(a => a.SourceId == selectedSourceId.Value);
         }
 
-        // Only show scored articles (filter out unscored)
-        allArticles = allArticles.Where(a => a.LlmScore.HasValue);
+        // 収集中のキーワードがあるかチェック
+        var activeCollectionKeywordIds = collectionStatuses
+            .Where(s => s.State == CollectionState.Collecting || s.State == CollectionState.Scoring)
+            .Select(s => s.KeywordId)
+            .ToHashSet();
 
-        // Apply sorting
+        // スコア済み記事 OR 収集中キーワードの記事（採点待ち含む）を表示
+        allArticles = allArticles.Where(a =>
+            a.LlmScore.HasValue ||  // スコア済み
+            activeCollectionKeywordIds.Contains(a.KeywordId));  // 収集中のキーワード
+
+        // Apply sorting: スコア済みを優先、その後は収集日時順
         var sortedArticles = sortBy switch
         {
             "date" => allArticles.OrderByDescending(a => a.PublishedAt ?? a.CollectedAt),
             "native" => allArticles.OrderByDescending(a => a.NativeScore ?? 0),
             "collected" => allArticles.OrderByDescending(a => a.CollectedAt),
-            _ => allArticles.OrderByDescending(a => a.FinalScore).ThenByDescending(a => a.CollectedAt)
+            _ => allArticles
+                .OrderByDescending(a => a.LlmScore.HasValue)  // スコア済みを先に
+                .ThenByDescending(a => a.FinalScore)
+                .ThenByDescending(a => a.CollectedAt)
         };
 
         var articleList = sortedArticles.ToList();

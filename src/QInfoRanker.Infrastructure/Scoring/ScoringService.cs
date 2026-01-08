@@ -40,16 +40,16 @@ public class ScoringService : IScoringService
 
         if (!string.IsNullOrEmpty(_openAIOptions.Endpoint) && !string.IsNullOrEmpty(_openAIOptions.ApiKey))
         {
+            // o3-mini等の新モデルには2024-12-01-preview以降が必要
+            var clientOptions = new AzureOpenAIClientOptions(AzureOpenAIClientOptions.ServiceVersion.V2024_12_01_Preview);
             _client = new AzureOpenAIClient(
                 new Uri(_openAIOptions.Endpoint),
-                new ApiKeyCredential(_openAIOptions.ApiKey));
+                new ApiKeyCredential(_openAIOptions.ApiKey),
+                clientOptions);
             _chatClient = _client.GetChatClient(_openAIOptions.DeploymentName);
 
-            // アンサンブル評価が有効な場合、各JudgeとMeta-Judgeのクライアントを初期化
-            if (_ensembleOptions.EnableEnsemble)
-            {
-                InitializeEnsembleClients();
-            }
+            // 常にアンサンブル評価用クライアントを初期化
+            InitializeEnsembleClients();
         }
     }
 
@@ -160,19 +160,21 @@ public class ScoringService : IScoringService
 
     public double CalculateFinalScore(Article article, Source source)
     {
-        // シンプルな100点満点スコアリング
-        // 品質評価: 4項目 × 20点 = 80点満点
-        // 関連性: 10点 × 2 = 20点満点
-        // 合計: 100点満点
+        // 5項目×20点 = 100点満点スコアリング
+        // - relevance: Stage 2での最終関連性評価 (0-20)
+        // - technical: 技術的深さ (0-20)
+        // - novelty: 新規性 (0-20)
+        // - impact: 実用性 (0-20)
+        // - quality: 情報の質 (0-20)
 
-        var qualityScore = (article.TechnicalScore ?? 0) +
-                          (article.NoveltyScore ?? 0) +
-                          (article.ImpactScore ?? 0) +
-                          (article.QualityScore ?? 0);
+        // Stage 2でのrelevance評価がある場合はそれを使用、なければStage 1の値を2倍
+        var relevanceScore = article.EnsembleRelevanceScore ?? ((article.RelevanceScore ?? 5) * 2);
 
-        var relevanceScore = (article.RelevanceScore ?? 5) * 2;
-
-        var finalScore = qualityScore + relevanceScore;
+        var finalScore = relevanceScore +
+                        (article.TechnicalScore ?? 0) +
+                        (article.NoveltyScore ?? 0) +
+                        (article.ImpactScore ?? 0) +
+                        (article.QualityScore ?? 0);
 
         return Math.Min(100, Math.Max(0, finalScore));
     }
@@ -396,11 +398,13 @@ public class ScoringService : IScoringService
 
             // 記事に品質スコアを反映
             var evaluatedArticleIds = new HashSet<int>();
+            var stage2FilteredCount = 0;
             foreach (var eval in result.QualityResult.Evaluations)
             {
                 var article = relevantArticles.FirstOrDefault(a => a.Id == eval.ArticleId);
                 if (article != null)
                 {
+                    article.EnsembleRelevanceScore = eval.Relevance;
                     article.TechnicalScore = eval.Technical;
                     article.NoveltyScore = eval.Novelty;
                     article.ImpactScore = eval.Impact;
@@ -408,7 +412,22 @@ public class ScoringService : IScoringService
                     article.LlmScore = eval.Total;
                     article.SummaryJa = eval.SummaryJa;
                     evaluatedArticleIds.Add(article.Id);
+
+                    // Stage 2での関連性再評価で閾値未満なら除外
+                    if (eval.Relevance < _scoringOptions.EnsembleRelevanceThreshold)
+                    {
+                        article.IsRelevant = false;
+                        stage2FilteredCount++;
+                        _logger.LogDebug("Stage 2で除外: {Title} (Relevance={Relevance} < {Threshold})",
+                            article.Title, eval.Relevance, _scoringOptions.EnsembleRelevanceThreshold);
+                    }
                 }
+            }
+
+            if (stage2FilteredCount > 0)
+            {
+                _logger.LogInformation("Stage 2の関連性再評価で{Count}件を除外 (閾値: {Threshold})",
+                    stage2FilteredCount, _scoringOptions.EnsembleRelevanceThreshold);
             }
 
             // 品質評価がされなかった記事にデフォルトスコアを設定
@@ -457,7 +476,7 @@ public class ScoringService : IScoringService
 
         var batches = articles
             .Select((article, index) => new { article, index })
-            .GroupBy(x => x.index / _batchOptions.RelevanceBatchSize)
+            .GroupBy(x => x.index / _batchOptions.Filtering.BatchSize)
             .Select(g => g.Select(x => x.article).ToList())
             .ToList();
 
@@ -577,7 +596,7 @@ public class ScoringService : IScoringService
 
         var options = new ChatCompletionOptions
         {
-            MaxOutputTokenCount = _batchOptions.RelevanceMaxTokens,
+            MaxOutputTokenCount = _batchOptions.Filtering.MaxTokens,
             Temperature = 0.2f
         };
 
@@ -601,7 +620,7 @@ public class ScoringService : IScoringService
 
         var batches = articles
             .Select((article, index) => new { article, index })
-            .GroupBy(x => x.index / _batchOptions.QualityBatchSize)
+            .GroupBy(x => x.index / _batchOptions.QualityFallback.BatchSize)
             .Select(g => g.Select(x => x.article).ToList())
             .ToList();
 
@@ -636,6 +655,7 @@ public class ScoringService : IScoringService
                     var article = batch.FirstOrDefault(a => a.Id == eval.ArticleId);
                     if (article != null)
                     {
+                        article.EnsembleRelevanceScore = eval.Relevance;
                         article.TechnicalScore = eval.Technical;
                         article.NoveltyScore = eval.Novelty;
                         article.ImpactScore = eval.Impact;
@@ -699,6 +719,7 @@ public class ScoringService : IScoringService
                         var eval = evaluations.First();
                         result.Evaluations.Add(eval);
 
+                        article.EnsembleRelevanceScore = eval.Relevance;
                         article.TechnicalScore = eval.Technical;
                         article.NoveltyScore = eval.Novelty;
                         article.ImpactScore = eval.Impact;
@@ -750,11 +771,14 @@ public class ScoringService : IScoringService
         var prompt = $$"""
             以下の技術記事（キーワード: {{keywordsStr}}）を評価し、日本語で要約してください。
 
-            評価項目（各0-20点、合計80点満点）:
+            評価項目（各0-20点、合計100点満点）:
+            - relevance: キーワードとの最終関連性（詳細を見た上での再評価）
             - technical: 技術的深さと重要性
             - novelty: 新規性・独自性
             - impact: 実用的な影響度・有用性
             - quality: 情報の質と信頼性
+
+            ※ relevance が 6 未満の場合は除外対象となるため、詳細を確認して正確に評価してください
 
             記事一覧:
             {{articlesJsonStr}}
@@ -764,11 +788,12 @@ public class ScoringService : IScoringService
               "evaluations": [
                 {
                   "id": 1,
-                  "technical": 16,
+                  "relevance": 16,
+                  "technical": 14,
                   "novelty": 12,
                   "impact": 14,
                   "quality": 14,
-                  "total": 56,
+                  "total": 70,
                   "summary_ja": "要約をここに記載..."
                 }
               ]
@@ -803,7 +828,7 @@ public class ScoringService : IScoringService
 
         var options = new ChatCompletionOptions
         {
-            MaxOutputTokenCount = _batchOptions.QualityMaxTokens,
+            MaxOutputTokenCount = _batchOptions.QualityFallback.MaxTokens,
             Temperature = 0.3f
         };
 
@@ -918,10 +943,11 @@ public class ScoringService : IScoringService
                         results.Add(new ArticleQuality
                         {
                             ArticleId = article.Id,
-                            Technical = Math.Clamp(eval.Technical, 0, 25),
-                            Novelty = Math.Clamp(eval.Novelty, 0, 25),
-                            Impact = Math.Clamp(eval.Impact, 0, 25),
-                            Quality = Math.Clamp(eval.Quality, 0, 25),
+                            Relevance = Math.Clamp(eval.Relevance, 0, 20),
+                            Technical = Math.Clamp(eval.Technical, 0, 20),
+                            Novelty = Math.Clamp(eval.Novelty, 0, 20),
+                            Impact = Math.Clamp(eval.Impact, 0, 20),
+                            Quality = Math.Clamp(eval.Quality, 0, 20),
                             Total = Math.Clamp(eval.Total, 0, 100),
                             SummaryJa = eval.SummaryJa ?? ""
                         });
@@ -1004,6 +1030,7 @@ public class ScoringService : IScoringService
     private class QualityEvaluation
     {
         public int Id { get; set; }
+        public int Relevance { get; set; }  // Stage 2での最終関連性 (0-20)
         public int Technical { get; set; }
         public int Novelty { get; set; }
         public int Impact { get; set; }
@@ -1028,10 +1055,10 @@ public class ScoringService : IScoringService
         var keywordList = keywords.ToList();
         var result = new EnsembleEvaluationResult { ArticleId = article.Id };
 
-        // アンサンブルが無効またはクライアントがない場合、フォールバック
-        if (!_ensembleOptions.EnableEnsemble || !_judgeClients.Any())
+        // Judgeクライアントがない場合のみフォールバック
+        if (!_judgeClients.Any())
         {
-            _logger.LogInformation("Ensemble evaluation disabled, falling back to single model for article: {ArticleId}", article.Id);
+            _logger.LogInformation("No judge clients available, falling back to single model for article: {ArticleId}", article.Id);
             return await FallbackToSingleModelEvaluationAsync(article, keywordList, cancellationToken);
         }
 
@@ -1046,38 +1073,28 @@ public class ScoringService : IScoringService
             return await FallbackToSingleModelEvaluationAsync(article, keywordList, cancellationToken);
         }
 
-        // Phase 2: コンセンサス判定
-        var hasConsensus = HasConsensus(judgeEvaluations);
-
-        if (hasConsensus && _ensembleOptions.SkipMetaJudgeOnConsensus)
+        // Phase 2: Meta-Judge統合評価（常に実行）
+        if (_metaJudgeClient != null && _ensembleOptions.MetaJudge.IsEnabled)
         {
-            // コンセンサスがあればMeta-Judgeをスキップ
-            _logger.LogInformation("Consensus reached for article {ArticleId}, skipping Meta-Judge", article.Id);
-            result.SkippedMetaJudge = true;
-            AggregateJudgeResults(result, judgeEvaluations);
-        }
-        else
-        {
-            // Phase 3: Meta-Judge統合評価
-            if (_metaJudgeClient != null && _ensembleOptions.MetaJudge.IsEnabled)
+            var metaResult = await EvaluateWithMetaJudgeAsync(article, keywordList, judgeEvaluations, cancellationToken);
+            result.MetaJudgeResult = metaResult;
+            if (metaResult != null)
             {
-                var metaResult = await EvaluateWithMetaJudgeAsync(article, keywordList, judgeEvaluations, cancellationToken);
-                result.MetaJudgeResult = metaResult;
-                if (metaResult != null)
-                {
-                    ApplyMetaJudgeResults(result, metaResult);
-                }
-                else
-                {
-                    // Meta-Judgeの解析に失敗した場合は重み付き平均
-                    AggregateJudgeResults(result, judgeEvaluations);
-                }
+                ApplyMetaJudgeResults(result, metaResult);
             }
             else
             {
-                // Meta-Judgeが使えない場合は重み付き平均
+                // Meta-Judgeの解析に失敗した場合は重み付き平均
+                _logger.LogWarning("Meta-Judge parsing failed for article {ArticleId}, using weighted average", article.Id);
                 AggregateJudgeResults(result, judgeEvaluations);
             }
+        }
+        else
+        {
+            // Meta-Judgeが使えない場合は重み付き平均
+            _logger.LogWarning("Meta-Judge unavailable for article {ArticleId}, using weighted average", article.Id);
+            result.SkippedMetaJudge = true;
+            AggregateJudgeResults(result, judgeEvaluations);
         }
 
         stopwatch.Stop();
@@ -1105,8 +1122,8 @@ public class ScoringService : IScoringService
         var keywordList = keywords.ToList();
         var result = new ThreeStageResult();
 
-        _logger.LogInformation("Starting 3-stage evaluation for {Count} articles, EnsembleEnabled={Enabled}",
-            articleList.Count, _ensembleOptions.EnableEnsemble);
+        _logger.LogInformation("Starting 3-stage evaluation for {Count} articles (ensemble mode)",
+            articleList.Count);
 
         // Stage 1: 関連性評価のみ実行（品質評価は行わない）
         List<Article> relevantArticles;
@@ -1424,23 +1441,6 @@ public class ScoringService : IScoringService
         }
     }
 
-    private bool HasConsensus(List<JudgeEvaluation> evaluations)
-    {
-        if (evaluations.Count < 2) return true;
-
-        var threshold = _ensembleOptions.ConsensusThreshold;
-
-        var dimensions = new[]
-        {
-            evaluations.Select(e => e.Technical).ToList(),
-            evaluations.Select(e => e.Novelty).ToList(),
-            evaluations.Select(e => e.Impact).ToList(),
-            evaluations.Select(e => e.Quality).ToList()
-        };
-
-        return dimensions.All(d => d.Max() - d.Min() <= threshold);
-    }
-
     private bool DetectContradictions(List<JudgeEvaluation> evaluations, List<ContradictionDetail> contradictions)
     {
         var threshold = _ensembleOptions.MetaJudge.ContradictionThreshold;
@@ -1690,7 +1690,7 @@ URL: {article.Url}
             var evaluation = new JudgeEvaluation
             {
                 JudgeId = judgeConfig.JudgeId,
-                JudgeDisplayName = judgeConfig.DisplayName,
+                JudgeDisplayName = judgeConfig.EffectiveDisplayName,
                 Weight = judgeConfig.Weight,
                 Technical = GetScoreValue(root, "technical"),
                 TechnicalReason = root.TryGetProperty("technical_reason", out var tr) ? tr.GetString() ?? "" : "",

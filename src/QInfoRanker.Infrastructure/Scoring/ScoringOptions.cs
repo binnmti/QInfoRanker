@@ -37,6 +37,12 @@ public class ScoringOptions
     public int DefaultMaxNativeScore { get; set; } = 100;
 
     /// <summary>
+    /// アンサンブル評価での関連性再評価の閾値（0-20点中、この値未満は除外）
+    /// Judgeによる詳細評価後、この閾値を下回る記事は最終結果から除外される
+    /// </summary>
+    public int EnsembleRelevanceThreshold { get; set; } = 6;
+
+    /// <summary>
     /// 実効NativeScoreWeight（プリセットを考慮）
     /// </summary>
     public double EffectiveNativeScoreWeight => Preset switch

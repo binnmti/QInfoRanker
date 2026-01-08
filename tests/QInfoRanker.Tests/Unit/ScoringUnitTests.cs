@@ -146,6 +146,57 @@ public class ScoringUnitTests
         Assert.Equal(expected, finalScore);
     }
 
+    [Fact]
+    public void CalculateFinalScore_WithStage2Relevance_UsesStage2Score()
+    {
+        // Arrange - EnsembleRelevanceScoreが設定されている場合はそれを使用
+        var article = new Article
+        {
+            TechnicalScore = 15,
+            NoveltyScore = 12,
+            ImpactScore = 18,
+            QualityScore = 16,
+            RelevanceScore = 8,        // Stage 1の値（使用されない）
+            EnsembleRelevanceScore = 14  // Stage 2の値（こちらを使用）
+        };
+
+        var source = new Source { Name = "Test" };
+
+        // Act
+        var finalScore = _scoringService.CalculateFinalScore(article, source);
+
+        // Assert
+        // 15 + 12 + 18 + 16 + 14 = 75
+        _output.WriteLine($"EnsembleRelevanceScore: {article.EnsembleRelevanceScore}");
+        _output.WriteLine($"Final Score: {finalScore}");
+
+        Assert.Equal(75, finalScore);
+    }
+
+    [Fact]
+    public void CalculateFinalScore_WithoutStage2Relevance_UsesRelevanceScoreDoubled()
+    {
+        // Arrange - EnsembleRelevanceScoreがnullの場合はRelevanceScore × 2を使用
+        var article = new Article
+        {
+            TechnicalScore = 15,
+            NoveltyScore = 12,
+            ImpactScore = 18,
+            QualityScore = 16,
+            RelevanceScore = 8,        // × 2 = 16
+            EnsembleRelevanceScore = null
+        };
+
+        var source = new Source { Name = "Test" };
+
+        // Act
+        var finalScore = _scoringService.CalculateFinalScore(article, source);
+
+        // Assert
+        // 15 + 12 + 18 + 16 + (8 × 2) = 77
+        Assert.Equal(77, finalScore);
+    }
+
     #endregion
 
     #region NormalizeNativeScore Tests

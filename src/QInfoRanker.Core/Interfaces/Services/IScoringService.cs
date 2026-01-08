@@ -137,6 +137,7 @@ public class BatchQualityResult
 public class ArticleQuality
 {
     public int ArticleId { get; set; }
+    public int Relevance { get; set; }  // Stage 2での最終関連性 (0-20)
     public int Technical { get; set; }
     public int Novelty { get; set; }
     public int Impact { get; set; }

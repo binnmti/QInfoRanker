@@ -27,13 +27,10 @@ public class EnsembleScoringOptionsTests
         // Arrange & Act
         var options = new EnsembleScoringOptions();
 
-        // Assert
-        Assert.False(options.EnableEnsemble);
+        // Assert - 常にアンサンブル評価を使用するためEnableEnsemble等は削除
         Assert.Empty(options.Judges);
         Assert.NotNull(options.MetaJudge);
-        Assert.Equal(5.0, options.ConsensusThreshold);
-        Assert.True(options.SkipMetaJudgeOnConsensus);
-        Assert.Equal(3, options.MaxParallelJudges);
+        Assert.Equal(2, options.MaxParallelJudges);
         Assert.Equal(60000, options.JudgeTimeoutMs);
     }
 
@@ -49,8 +46,9 @@ public class EnsembleScoringOptionsTests
         Assert.Equal(string.Empty, config.DeploymentName);
         Assert.Equal(1.0, config.Weight);
         Assert.Null(config.Specialty);
-        Assert.Equal(4000, config.MaxTokens);
-        Assert.Equal(0.3f, config.Temperature);
+        // MaxTokens/Temperatureはオーバーライド用。0/nullはModelCapabilitiesのデフォルト値を使用
+        Assert.Equal(0, config.MaxTokens);
+        Assert.Null(config.Temperature);
         Assert.True(config.IsEnabled);
     }
 
@@ -63,8 +61,9 @@ public class EnsembleScoringOptionsTests
         // Assert
         Assert.True(config.IsEnabled);
         Assert.Equal("o3-pro", config.DeploymentName);
-        Assert.Equal(6000, config.MaxTokens);
-        Assert.Equal(0.1f, config.Temperature);
+        // MaxTokens/Temperatureはオーバーライド用。0/nullはModelCapabilitiesのデフォルト値を使用
+        Assert.Equal(0, config.MaxTokens);
+        Assert.Null(config.Temperature);
         Assert.Equal(15.0, config.ContradictionThreshold);
     }
 
@@ -78,11 +77,8 @@ public class EnsembleScoringOptionsTests
         // Arrange
         var configData = new Dictionary<string, string?>
         {
-            ["EnsembleScoring:EnableEnsemble"] = "true",
             ["EnsembleScoring:MaxParallelJudges"] = "5",
             ["EnsembleScoring:JudgeTimeoutMs"] = "120000",
-            ["EnsembleScoring:ConsensusThreshold"] = "3.5",
-            ["EnsembleScoring:SkipMetaJudgeOnConsensus"] = "false",
         };
 
         var configuration = new ConfigurationBuilder()
@@ -99,11 +95,8 @@ public class EnsembleScoringOptionsTests
         var options = serviceProvider.GetRequiredService<IOptions<EnsembleScoringOptions>>().Value;
 
         // Assert
-        Assert.True(options.EnableEnsemble);
         Assert.Equal(5, options.MaxParallelJudges);
         Assert.Equal(120000, options.JudgeTimeoutMs);
-        Assert.Equal(3.5, options.ConsensusThreshold);
-        Assert.False(options.SkipMetaJudgeOnConsensus);
     }
 
     [Fact]
@@ -112,7 +105,6 @@ public class EnsembleScoringOptionsTests
         // Arrange
         var configData = new Dictionary<string, string?>
         {
-            ["EnsembleScoring:EnableEnsemble"] = "true",
             ["EnsembleScoring:Judges:0:JudgeId"] = "JudgeA",
             ["EnsembleScoring:Judges:0:DisplayName"] = "gpt-5 (汎用評価)",
             ["EnsembleScoring:Judges:0:DeploymentName"] = "gpt-5",

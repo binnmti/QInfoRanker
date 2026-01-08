@@ -23,10 +23,11 @@ public class Article
     public int? ImpactScore { get; set; }
     public int? QualityScore { get; set; }
 
-    // バッチスコアリング用
-    public double? RelevanceScore { get; set; }  // 0-10 関連性スコア
-    public bool? IsRelevant { get; set; }        // 関連性閾値判定結果
-    public string? SummaryJa { get; set; }       // AI生成の日本語要約
+    // スコアリング詳細
+    public double? RelevanceScore { get; set; }        // 0-10 フィルタリング時の簡易関連性スコア
+    public int? EnsembleRelevanceScore { get; set; }   // 0-20 アンサンブル評価での最終関連性スコア
+    public bool? IsRelevant { get; set; }              // 関連性閾値判定結果
+    public string? SummaryJa { get; set; }             // AI生成の日本語要約
 
     public Source Source { get; set; } = null!;
     public Keyword Keyword { get; set; } = null!;

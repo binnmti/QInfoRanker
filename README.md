@@ -5,9 +5,9 @@
 ## 機能
 
 - **マルチソース収集**: Hacker News、ArXiv、Reddit、Qiita、Zenn、はてな、Note、Google News、PubMed、BBC、Yahoo!ニュース、Semantic Scholarなど11以上のソースに対応
-- **AIスコアリング**: Azure OpenAI (GPT-4o-mini) を使用した2段階評価
+- **AIスコアリング**: Azure OpenAI を使用した2段階評価
   - 関連性フィルタリング（キーワードとの関連度）
-  - 品質評価（技術性、新規性、影響度、品質）
+  - アンサンブル評価（複数Judgeによる多角的評価）
 - **ハイブリッドスコア**: ネイティブスコア（各ソースの人気度）とLLMスコアを組み合わせた最終スコア
 - **キーワード管理**: AIによるソース推薦と英語エイリアス自動生成
 - **リアルタイム収集**: バックグラウンドでの記事収集と進捗表示
@@ -18,7 +18,7 @@
 - **フレームワーク**: ASP.NET Core 8.0 + Blazor (Server/WebAssembly)
 - **言語**: C# (.NET 8.0)
 - **データベース**: SQLite（デフォルト）/ SQL Server
-- **AI**: Azure OpenAI (GPT-4o-mini)
+- **AI**: Azure OpenAI
 - **スクレイピング**: AngleSharp
 - **ORM**: Entity Framework Core 8.0
 
@@ -40,10 +40,10 @@
    ```json
    "AzureOpenAI": {
      "Endpoint": "YOUR_AZURE_OPENAI_ENDPOINT",
-     "ApiKey": "YOUR_API_KEY",
-     "DeploymentName": "gpt-4o-mini"
+     "ApiKey": "YOUR_API_KEY"
    }
    ```
+   ※ 使用するモデルは `BatchScoring` および `EnsembleScoring` セクションで設定
 
 3. アプリケーションを実行
    ```bash
@@ -90,18 +90,19 @@ tests/
 記事は2段階のAI評価を経て最終スコアが決まります。
 
 ```
-収集記事 → [Stage1: 関連性評価] → 関連記事のみ → [Stage2: 品質評価] → 最終スコア計算
+収集記事 → [Filtering: 関連性] → 関連記事のみ → [Ensemble: 多角評価] → 最終スコア計算
 ```
 
-### Stage 1: 関連性フィルタリング
+### Filtering（関連性フィルタリング）
 キーワードとの関連度を0〜10で評価し、閾値以上の記事だけを次のステージへ。
 
-### Stage 2: 品質評価
-関連性のある記事を4軸で評価（各0〜25点、合計100点満点）:
-- Technical: 技術的深さ・正確性
-- Novelty: 新規性・独自性
-- Impact: 影響度・重要性
-- Quality: 文章品質・信頼性
+### Ensemble（アンサンブル評価）
+複数のJudge（評価モデル）+ MetaJudge（統合モデル）で5軸評価（各0〜20点、合計100点満点）:
+- Relevance: 最終関連性
+- Technical: 技術的深さ
+- Novelty: 新規性
+- Impact: 実用性
+- Quality: 情報の質
 
 ### 最終スコア計算
 ```

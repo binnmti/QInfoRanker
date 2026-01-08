@@ -6,6 +6,28 @@
 
 QInfoRankerは、キーワードベースの情報収集・ランキングシステムです。複数のニュースソースから記事を収集し、Azure OpenAIを使用してスコアリング・ランキングします。
 
+## ユビキタス言語（用語定義）
+
+コード・設定・ドキュメント間で統一された用語。新しいコードや設定を追加する際は必ずこの用語に従うこと。
+
+| 用語 | 設定キー | 説明 |
+|------|----------|------|
+| **Filtering** | `BatchScoring.Filtering` | 関連性フィルタリング。0-10点で判定し閾値未満を除外 |
+| **Ensemble** | `EnsembleScoring` | アンサンブル評価。複数Judge + MetaJudgeによる本評価（常に有効） |
+| **Judge** | `EnsembleScoring.Judges` | 個別の評価モデル（GeneralEvaluator, TechExpert等） |
+| **MetaJudge** | `EnsembleScoring.MetaJudge` | 各Judgeの評価を統合する最終評価モデル |
+| **EnsembleRelevanceScore** | `Article.EnsembleRelevanceScore` | アンサンブル評価での関連性スコア（0-20点） |
+| **EnsembleRelevanceThreshold** | `Scoring.EnsembleRelevanceThreshold` | アンサンブル評価での関連性閾値（この値未満は除外） |
+
+### 廃止された用語（使用禁止）
+
+| 旧用語 | 新用語 | 理由 |
+|--------|--------|------|
+| Stage1 | Filtering | 役割が明確になるため |
+| Stage2 | Ensemble | アンサンブル評価を表す |
+| Stage2RelevanceScore | EnsembleRelevanceScore | アンサンブル評価であることを明示 |
+| Stage2RelevanceThreshold | EnsembleRelevanceThreshold | 同上 |
+
 ## アーキテクチャ
 
 Clean Architectureに基づいた3層構造:
@@ -81,21 +103,24 @@ dotnet test
 4. `Core/Enums/SourceType.cs` に新しいソースタイプを追加（必要に応じて）
 
 ### スコアリングの流れ
-1. **関連性評価** (RelevanceBatch): キーワードとの関連度を0-10でスコアリング
-2. **品質評価** (QualityBatch): 閾値を超えた記事に対して4軸評価
-   - Technical (0-25): 技術的深さ
-   - Novelty (0-25): 新規性
-   - Impact (0-25): 影響度
-   - Quality (0-25): 品質
+1. **Filtering（関連性フィルタリング）**: キーワードとの関連度を0-10でスコアリング、閾値未満を除外
+2. **Ensemble（アンサンブル評価）**: 複数Judge + MetaJudgeで5軸評価（各0-20点、合計100点満点）
+   - relevance: 最終関連性（EnsembleRelevanceScore）
+   - technical: 技術的深さ
+   - novelty: 新規性
+   - impact: 実用性
+   - quality: 情報の質
 3. **最終スコア**: `(NativeScore × Weight + LlmScore × Weight) × AuthorityBonus`
+
+詳細は [SCORING_OVERVIEW.md](SCORING_OVERVIEW.md) を参照。
 
 ## 設定
 
 ### 環境変数/appsettings.json
 - `AzureOpenAI:Endpoint` - Azure OpenAI エンドポイント
 - `AzureOpenAI:ApiKey` - APIキー
-- `AzureOpenAI:DeploymentName` - デプロイメント名（gpt-4o-mini）
 - `UseSqlite` - SQLite使用フラグ（false時はSQL Server）
+- モデル設定は `BatchScoring.Filtering` / `EnsembleScoring` セクションで指定
 
 ### スコアリングプリセット
 - `Scoring:Preset` - スコアリング方式
@@ -111,6 +136,8 @@ dotnet test
 - プリセット定義: `Infrastructure/Scoring/ScoringPreset.cs`
 - スコアリングオプション: `Infrastructure/Scoring/ScoringOptions.cs`
 - バッチオプション: `Infrastructure/Scoring/BatchScoringOptions.cs`
+- アンサンブルオプション: `Infrastructure/Scoring/EnsembleScoringOptions.cs`
+- スコアリングサービス: `Infrastructure/Scoring/ScoringService.cs`
 
 ## よくある作業
 
@@ -128,17 +155,17 @@ dotnet test
 
 ### 進捗通知の仕組み
 収集処理は `IProgress<ScoringProgress>` コールバックを使用してリアルタイム進捗を報告:
-- **Stage 1 (フィルタリング)**: 関連性評価の進捗と通過件数を表示
-- **Stage 2 (スコアリング)**: 品質評価の進捗を表示
+- **Filtering**: 関連性フィルタリングの進捗と通過件数を表示
+- **Ensemble**: アンサンブル評価の進捗を表示
 - UIは5秒ごとのポーリングで `CollectionQueue.GetAllStatuses()` から更新
 
 ### スコアリング関連の変更
-- スコアリングサービス: `Infrastructure/Scoring/AzureOpenAIScoringService.cs`
-- バッチ処理設定: `appsettings.json` の `BatchScoring` セクション
+- スコアリングサービス: `Infrastructure/Scoring/ScoringService.cs`
+- 設定セクション: `appsettings.json` の `Scoring`, `BatchScoring`, `EnsembleScoring`
 
 ## 注意事項
 
-- Azure OpenAI APIはコストがかかるため、開発時は `BatchScoring:EnableBatchProcessing` を確認
+- Azure OpenAI APIはコストがかかるため、開発時は廉価モデル（nano系）を使用
 - 収集処理は時間がかかるため、バックグラウンドキューを使用
 - SignalRタイムアウトは2分に設定済み
 - **タスク完了時はREADME.mdも確認・追従すること**（機能追加・設定変更などがあればドキュメントも更新）
