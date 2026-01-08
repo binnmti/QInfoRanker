@@ -1,5 +1,4 @@
 using System.ClientModel;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.Configuration;
 using OpenAI;
 using OpenAI.Chat;
@@ -12,19 +11,19 @@ using Xunit.Abstractions;
 namespace QInfoRanker.Tests.Integration;
 
 /// <summary>
-/// Microsoft Agent Framework の統合テスト
+/// OpenAI SDK による API 統合テスト
 /// Chat Completion API と Responses API の両方をテスト
 /// CI/CDでスキップ: dotnet test --filter "Category!=Integration"
 /// </summary>
 [Trait("Category", "Integration")]
-public class AgentFrameworkIntegrationTests : IDisposable
+public class OpenAIApiIntegrationTests : IDisposable
 {
     private readonly ITestOutputHelper _output;
     private readonly IConfiguration _configuration;
     private readonly OpenAIClient? _client;
     private readonly AzureOpenAIOptions? _openAIOptions;
 
-    public AgentFrameworkIntegrationTests(ITestOutputHelper output)
+    public OpenAIApiIntegrationTests(ITestOutputHelper output)
     {
         _output = output;
 
@@ -55,10 +54,10 @@ public class AgentFrameworkIntegrationTests : IDisposable
     }
 
     /// <summary>
-    /// Chat Completion API を使用したAIAgentテスト (gpt-4o-mini)
+    /// Chat Completion API テスト (gpt-4o-mini)
     /// </summary>
     [Fact]
-    public async Task ChatCompletionAgent_CanRunAsync()
+    public async Task ChatCompletionApi_CanComplete()
     {
         if (_client == null)
         {
@@ -66,29 +65,33 @@ public class AgentFrameworkIntegrationTests : IDisposable
             return;
         }
 
-        _output.WriteLine("=== Chat Completion API Agent Test ===\n");
+        _output.WriteLine("=== Chat Completion API Test (gpt-4o-mini) ===\n");
 
         // Arrange
         var chatClient = _client.GetChatClient("gpt-4o-mini");
-        AIAgent agent = chatClient.CreateAIAgent(
-            instructions: "You are a helpful assistant. Respond in one short sentence.",
-            name: "TestChatAgent");
+        var messages = new List<ChatMessage>
+        {
+            new SystemChatMessage("You are a helpful assistant. Respond in one short sentence."),
+            new UserChatMessage("Say hello.")
+        };
 
         // Act
-        var response = await agent.RunAsync("Say hello.");
-        var result = response.Text;
+        var response = await chatClient.CompleteChatAsync(messages);
+        var result = response.Value.Content[0].Text;
 
         // Assert
         _output.WriteLine($"Response: {result}");
+        _output.WriteLine($"Input tokens: {response.Value.Usage?.InputTokenCount}");
+        _output.WriteLine($"Output tokens: {response.Value.Usage?.OutputTokenCount}");
         Assert.False(string.IsNullOrEmpty(result));
     }
 
     /// <summary>
-    /// Responses API を使用したAIAgentテスト (gpt-5.1-codex-mini)
-    /// codexモデルはResponses APIが必要
+    /// Responses API テスト (gpt-5.1-codex-mini)
+    /// CodexモデルはChat Completion APIをサポートしないため、Responses APIを使用
     /// </summary>
     [Fact]
-    public async Task ResponsesApiAgent_CanRunAsync()
+    public async Task ResponsesApi_CanCreateResponse()
     {
         if (_client == null)
         {
@@ -96,29 +99,29 @@ public class AgentFrameworkIntegrationTests : IDisposable
             return;
         }
 
-        _output.WriteLine("=== Responses API Agent Test ===\n");
+        _output.WriteLine("=== Responses API Test (gpt-5.1-codex-mini) ===\n");
 
         // Arrange
-        var responseClient = _client.GetResponsesClient("gpt-5.1-codex-mini");
-        AIAgent agent = responseClient.CreateAIAgent(
-            instructions: "You are a helpful assistant. Respond in one short sentence.",
-            name: "TestResponseAgent");
+        var responsesClient = _client.GetResponsesClient("gpt-5.1-codex-mini");
 
         // Act
-        var response = await agent.RunAsync("Say hello.");
-        var result = response.Text;
+        var clientResult = await responsesClient.CreateResponseAsync("Say hello in one short sentence.");
+        var response = clientResult.Value;
+        var result = response.GetOutputText();
 
         // Assert
         _output.WriteLine($"Response: {result}");
+        _output.WriteLine($"Input tokens: {response.Usage?.InputTokenCount}");
+        _output.WriteLine($"Output tokens: {response.Usage?.OutputTokenCount}");
         Assert.False(string.IsNullOrEmpty(result));
     }
 
     /// <summary>
-    /// 推論モデル (gpt-5-nano) のテスト
-    /// Chat Completion API で動作
+    /// 推論モデル (gpt-5-nano) テスト
+    /// Chat Completion API で動作、Temperature設定不可
     /// </summary>
     [Fact]
-    public async Task ReasoningModelAgent_CanRunAsync()
+    public async Task ReasoningModel_CanComplete()
     {
         if (_client == null)
         {
@@ -126,22 +129,32 @@ public class AgentFrameworkIntegrationTests : IDisposable
             return;
         }
 
-        _output.WriteLine("=== Reasoning Model Agent Test (gpt-5-nano) ===\n");
+        _output.WriteLine("=== Reasoning Model Test (gpt-5-nano) ===\n");
 
         // Arrange
         var chatClient = _client.GetChatClient("gpt-5-nano");
-        AIAgent agent = chatClient.CreateAIAgent(
-            instructions: "You are a helpful assistant. Respond in one short sentence.",
-            name: "TestReasoningAgent");
+        var messages = new List<ChatMessage>
+        {
+            new SystemChatMessage("You are a helpful assistant. Respond in one short sentence."),
+            new UserChatMessage("What is 2+2?")
+        };
+        var options = new ChatCompletionOptions
+        {
+            ReasoningEffortLevel = ChatReasoningEffortLevel.Low
+        };
 
         // Act
-        var response = await agent.RunAsync("What is 2+2?");
-        var result = response.Text;
+        var response = await chatClient.CompleteChatAsync(messages, options);
+        var result = response.Value.Content[0].Text;
 
         // Assert
         _output.WriteLine($"Response: {result}");
+        _output.WriteLine($"Input tokens: {response.Value.Usage?.InputTokenCount}");
+        _output.WriteLine($"Output tokens: {response.Value.Usage?.OutputTokenCount}");
         Assert.False(string.IsNullOrEmpty(result));
-        Assert.Contains("4", result);
+        // モデルは "4" または "four" で回答する可能性がある
+        Assert.True(result.Contains("4") || result.ToLower().Contains("four"), 
+            $"Response should contain '4' or 'four': {result}");
     }
 
     public void Dispose()
