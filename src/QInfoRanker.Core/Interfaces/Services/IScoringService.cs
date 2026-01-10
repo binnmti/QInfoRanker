@@ -165,11 +165,13 @@ public class JudgeEvaluation
     public int Impact { get; set; }
     public int Quality { get; set; }
     public int Total { get; set; }
+    public int Recommend { get; set; }  // おすすめ度 (0-20)
     public string RelevanceReason { get; set; } = string.Empty;
     public string TechnicalReason { get; set; } = string.Empty;
     public string NoveltyReason { get; set; } = string.Empty;
     public string ImpactReason { get; set; } = string.Empty;
     public string QualityReason { get; set; } = string.Empty;
+    public string RecommendReason { get; set; } = string.Empty;
     public string SummaryJa { get; set; } = string.Empty;
     public double Weight { get; set; } = 1.0;
     public int InputTokens { get; set; }
@@ -226,6 +228,7 @@ public class EnsembleEvaluationResult
     public int FinalImpact { get; set; }
     public int FinalQuality { get; set; }
     public int FinalTotal { get; set; }
+    public int FinalRecommend { get; set; }  // おすすめ度 (0-20)
     public double Confidence { get; set; }
     public string FinalSummaryJa { get; set; } = string.Empty;
     public bool SkippedMetaJudge { get; set; }

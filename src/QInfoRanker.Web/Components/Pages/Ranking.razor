@@ -335,10 +335,14 @@
             }
         </button>
     </div>
-    <div class="col-md-1 d-flex align-items-end">
+    <div class="col-md-2 d-flex align-items-end gap-3">
         <div class="form-check">
             <input class="form-check-input" type="checkbox" id="showExcluded" @bind="showExcluded" @bind:after="ResetPageAndLoad">
             <label class="form-check-label small" for="showExcluded" title="関連性が低く除外された記事も表示">除外含む</label>
+        </div>
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="debugMode" @bind="debugMode">
+            <label class="form-check-label small" for="debugMode" title="スコア詳細を表示">🔧詳細</label>
         </div>
     </div>
 </div>
@@ -355,11 +359,9 @@ else if (articles == null || !articles.Any())
 }
 else
 {
-    var avgScore = articles.Any() ? articles.Average(a => a.FinalScore) : 0;
     <div class="mb-2 d-flex justify-content-between align-items-center">
         <span class="text-muted small">
             全 @totalCount 件中 @((currentPage - 1) * pageSize + 1)-@Math.Min(currentPage * pageSize, totalCount) 件表示
-            (平均: @avgScore.ToString("F1")点)
             @if(lastUpdated.HasValue) { <span class="ms-2">更新: @lastUpdated.Value.ToString("HH:mm:ss")</span> }
         </span>
         <div class="d-flex align-items-center gap-2">
@@ -431,19 +433,7 @@ else
                         var relevanceScore = article.EnsembleRelevanceScore ?? ((article.RelevanceScore ?? 5) * 2);
                         var isScored = article.LlmScore.HasValue;
                     }
-                    @if (isScored)
-                    {
-                        <span class="ms-auto d-flex align-items-center gap-1"
-                              title="5項目×20点=100点満点&#10;技術:@(article.TechnicalScore ?? 0) + 新規:@(article.NoveltyScore ?? 0) + 影響:@(article.ImpactScore ?? 0) + 品質:@(article.QualityScore ?? 0) + 関連:@(relevanceScore) = @article.FinalScore.ToString("F0")">
-                            <span class="badge bg-info" style="font-size:0.6rem" title="技術的深さ (20点満点)">技術@(article.TechnicalScore ?? 0)</span>
-                            <span class="badge bg-success" style="font-size:0.6rem" title="新規性 (20点満点)">新規@(article.NoveltyScore ?? 0)</span>
-                            <span class="badge bg-warning text-dark" style="font-size:0.6rem" title="影響度・実用性 (20点満点)">影響@(article.ImpactScore ?? 0)</span>
-                            <span class="badge bg-secondary" style="font-size:0.6rem" title="執筆品質 (20点満点)">品質@(article.QualityScore ?? 0)</span>
-                            <span class="badge bg-primary" style="font-size:0.6rem" title="キーワードとの関連性 (20点満点)">関連@(relevanceScore)</span>
-                            <strong class="ms-1">@article.FinalScore.ToString("F0")</strong><span style="font-size:0.7rem">点</span>
-                        </span>
-                    }
-                    else
+                    @if (!isScored)
                     {
                         <span class="ms-auto">
                             <span class="badge bg-warning text-dark" style="font-size:0.7rem">
@@ -451,6 +441,16 @@ else
                                 採点中...
                             </span>
                         </span>
+                    }
+                    @if (debugMode && isScored)
+                    {
+                        <span class="text-muted small ms-auto" style="font-size: 0.7rem;">
+                            推@(article.RecommendScore ?? 0) 技@(article.TechnicalScore ?? 0) 新@(article.NoveltyScore ?? 0) 影@(article.ImpactScore ?? 0) 質@(article.QualityScore ?? 0) 関@(relevanceScore)
+                        </span>
+                    }
+                    else if ((article.RecommendScore ?? 0) >= RecommendThreshold)
+                    {
+                        <span class="ms-auto" style="font-size: 1.1rem;">🔥</span>
                     }
                 </div>
 
@@ -521,6 +521,7 @@ else
     private string selectedPeriod = "week";
     private string sortBy = "score";
     private bool showExcluded = false;  // 評価外の記事も表示（デバッグ用）
+    private bool debugMode = false;      // デバッグモード（スコア詳細表示）
     private int pageSize = 20;
     private int currentPage = 1;
     private int totalCount = 0;
@@ -530,6 +531,7 @@ else
     private List<CollectionStatus> collectionStatuses = new();
     private Timer? autoRefreshTimer;
     private const int autoRefreshSeconds = 5;
+    private const int RecommendThreshold = 17;  // おすすめ表示の閾値（0-20）
     private HashSet<int> previousArticleIds = new();
 
     [SupplyParameterFromQuery(Name = "keyword")]

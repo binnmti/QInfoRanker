@@ -6,8 +6,8 @@
 
 - **マルチソース収集**: Hacker News、ArXiv、Reddit、Qiita、Zenn、はてな、Note、Google News、PubMed、BBC、Yahoo!ニュース、Semantic Scholarなど11以上のソースに対応
 - **AIスコアリング**: Azure OpenAI を使用した2段階評価
-  - 関連性フィルタリング（キーワードとの関連度）
-  - アンサンブル評価（複数Judgeによる多角的評価）
+  - 関連性フィルタリング（キーワードとの関連度で高速に絞り込み）
+  - 本評価（単一の高性能モデルで5軸評価）
 - **ハイブリッドスコア**: ネイティブスコア（各ソースの人気度）とLLMスコアを組み合わせた最終スコア
 - **キーワード管理**: AIによるソース推薦と英語エイリアス自動生成
 - **リアルタイム収集**: バックグラウンドでの記事収集と進捗表示
@@ -96,13 +96,15 @@ tests/
 ### Filtering（関連性フィルタリング）
 キーワードとの関連度を0〜10で評価し、閾値以上の記事だけを次のステージへ。
 
-### Ensemble（アンサンブル評価）
-複数のJudge（評価モデル）+ MetaJudge（統合モデル）で5軸評価（各0〜20点、合計100点満点）:
+### Ensemble（本評価）
+単一の高性能モデル（推論モデル推奨）で5軸評価（各0〜20点、合計100点満点）:
 - Relevance: 最終関連性
 - Technical: 技術的深さ
 - Novelty: 新規性
 - Impact: 実用性
 - Quality: 情報の質
+
+※ v2アーキテクチャでは、複数Judge + MetaJudgeから単一モデルに統一。コストを約70%削減しながら同等以上の精度を維持。
 
 ### 最終スコア計算
 ```
@@ -134,13 +136,26 @@ FinalScore = (NativeScore × Weight + LlmScore × Weight) × AuthorityBonus
 ```json
 {
   "Scoring": {
-    "Preset": "QualityFocused"
+    "Preset": "QualityFocused",
+    "EnsembleRelevanceThreshold": 6
   },
   "BatchScoring": {
-    "FilteringPreset": "Normal"
+    "FilteringPreset": "Normal",
+    "Filtering": {
+      "DeploymentName": "gpt-5-nano"
+    }
+  },
+  "EnsembleScoring": {
+    "DeploymentName": "o3-mini",
+    "BatchSize": 5
+  },
+  "WeeklySummary": {
+    "DeploymentName": "o3-mini"
   }
 }
 ```
+
+詳細なスコアリング設定については [SCORING_OVERVIEW.md](doc/SCORING_OVERVIEW.md) を参照。
 
 ## ライセンス
 

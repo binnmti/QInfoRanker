@@ -416,9 +416,9 @@ public class CollectionService : ICollectionService
             await _progressNotifier.NotifyArticlesQualityScoredAsync(keywordId, scoredPreviews);
         };
 
-        // アンサンブル評価を実行（常に有効）
-        _logger.LogInformation("Using ensemble evaluation with {JudgeCount} judges",
-            _ensembleOptions.Judges.Count(j => j.IsEnabled));
+        // 本評価を実行
+        _logger.LogInformation("Using unified evaluation with model: {DeploymentName}",
+            _ensembleOptions.DeploymentName);
 
         var threeStageResult = await _scoringService.EvaluateThreeStageAsync(
             articles, searchTerms, source.HasServerSideFiltering, progress, debugMode, cancellationToken);
@@ -466,6 +466,7 @@ public class CollectionService : ICollectionService
                 article.ImpactScore = ensembleResult.FinalImpact;
                 article.QualityScore = ensembleResult.FinalQuality;
                 article.LlmScore = ensembleResult.FinalTotal;
+                article.RecommendScore = ensembleResult.FinalRecommend;
                 article.SummaryJa = ensembleResult.FinalSummaryJa;
                 article.FinalScore = _scoringService.CalculateFinalScore(article, source);
                 await _articleService.UpdateAsync(article, cancellationToken);

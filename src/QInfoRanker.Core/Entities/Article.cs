@@ -28,6 +28,7 @@ public class Article
     public int? EnsembleRelevanceScore { get; set; }   // 0-20 アンサンブル評価での最終関連性スコア
     public bool? IsRelevant { get; set; }              // 関連性閾値判定結果
     public string? SummaryJa { get; set; }             // AI生成の日本語要約
+    public int? RecommendScore { get; set; }           // 0-20 おすすめ度（閾値以上で炎表示）
 
     public Source Source { get; set; } = null!;
     public Keyword Keyword { get; set; } = null!;

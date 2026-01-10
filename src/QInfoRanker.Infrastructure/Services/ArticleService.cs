@@ -108,6 +108,48 @@ public class ArticleService : IArticleService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IEnumerable<Article>> GetWeeklyRecommendedByCategoryAsync(
+        SourceCategory category,
+        int recommendThreshold,
+        int? keywordId = null,
+        int take = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var (weekStart, weekEnd) = GetCurrentWeekRange();
+
+        var query = _context.Articles
+            .AsNoTracking()
+            .Include(a => a.Source)
+            .Include(a => a.Keyword)
+            .Where(a => a.Source.Category == category)
+            .Where(a => a.IsRelevant == true)
+            .Where(a => a.LlmScore.HasValue)
+            .Where(a => a.RecommendScore.HasValue && a.RecommendScore.Value >= recommendThreshold);
+
+        if (keywordId.HasValue)
+        {
+            query = query.Where(a => a.KeywordId == keywordId.Value);
+        }
+
+        // Newsカテゴリは公開日基準、その他は収集日基準
+        if (category == SourceCategory.News)
+        {
+            query = query.Where(a => a.PublishedAt.HasValue &&
+                                     a.PublishedAt.Value >= weekStart &&
+                                     a.PublishedAt.Value <= weekEnd);
+        }
+        else
+        {
+            query = query.Where(a => a.CollectedAt >= weekStart && a.CollectedAt <= weekEnd);
+        }
+
+        return await query
+            .OrderByDescending(a => a.RecommendScore)
+            .ThenByDescending(a => a.FinalScore)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
     private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()
     {
         var today = DateTime.UtcNow.Date;

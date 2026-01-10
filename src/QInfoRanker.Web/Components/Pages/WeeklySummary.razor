@@ -8,7 +8,7 @@
 @inject IKeywordService KeywordService
 @inject IWeeklySummaryService SummaryService
 
-<PageTitle>今週のまとめ - QInfoRanker</PageTitle>
+<PageTitle>今週のおすすめ - QInfoRanker</PageTitle>
 
 <style>
     .category-column {
@@ -51,11 +51,6 @@
         padding-left: 0.5rem;
         padding-right: 0.5rem;
     }
-    .article-rank {
-        font-weight: bold;
-        color: #6c757d;
-        min-width: 1.5rem;
-    }
     .article-title {
         font-size: 0.9rem;
         line-height: 1.4;
@@ -67,10 +62,6 @@
     .article-meta {
         font-size: 0.75rem;
         color: #6c757d;
-    }
-    .article-score {
-        font-weight: bold;
-        color: #0d6efd;
     }
 
     .summary-card {
@@ -113,7 +104,7 @@
     </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="mb-0">今週のまとめ</h1>
+    <h1 class="mb-0">今週のおすすめ</h1>
     <div class="d-flex align-items-center gap-2">
         <select class="form-select form-select-sm" style="width: auto;" @bind="selectedKeywordId" @bind:after="LoadAll">
             <option value="">すべてのキーワード</option>
@@ -126,7 +117,7 @@
 </div>
 
 <p class="text-muted small mb-3">
-    @weekStart.ToString("M/d") 〜 @weekEnd.ToString("M/d") の注目記事
+    @weekStart.ToString("M/d") 〜 @weekEnd.ToString("M/d") のおすすめ記事
 </p>
 
 @* 統合サマリーセクション *@
@@ -234,18 +225,16 @@ else
                 @if (!newsArticles.Any())
                 {
                     <div class="empty-state">
-                        <p class="mb-0">今週のニュースはありません</p>
+                        <p class="mb-0">おすすめ記事はありません</p>
                     </div>
                 }
                 else
                 {
-                    var newsRank = 0;
                     foreach (var article in newsArticles)
                     {
-                        newsRank++;
                         <div class="article-item" @key="article.Id">
                             <div class="d-flex gap-2">
-                                <span class="article-rank">@newsRank.</span>
+                                <span style="font-size: 1rem;">🔥</span>
                                 <div class="flex-grow-1">
                                     <a href="@article.Url" target="_blank"
                                        class="article-title text-decoration-none d-block"
@@ -258,7 +247,6 @@ else
                                         {
                                             <span>@article.PublishedAt.Value.ToString("M/d")</span>
                                         }
-                                        <span class="article-score ms-auto">@article.FinalScore.ToString("F0")点</span>
                                     </div>
                                 </div>
                             </div>
@@ -290,18 +278,16 @@ else
                 @if (!techArticles.Any())
                 {
                     <div class="empty-state">
-                        <p class="mb-0">今週の技術記事はありません</p>
+                        <p class="mb-0">おすすめ記事はありません</p>
                     </div>
                 }
                 else
                 {
-                    var techRank = 0;
                     foreach (var article in techArticles)
                     {
-                        techRank++;
                         <div class="article-item" @key="article.Id">
                             <div class="d-flex gap-2">
-                                <span class="article-rank">@techRank.</span>
+                                <span style="font-size: 1rem;">🔥</span>
                                 <div class="flex-grow-1">
                                     <a href="@article.Url" target="_blank"
                                        class="article-title text-decoration-none d-block"
@@ -311,7 +297,6 @@ else
                                     <div class="article-meta d-flex gap-2 mt-1">
                                         <span>@article.Source.Name</span>
                                         <span>@article.CollectedAt.ToString("M/d")</span>
-                                        <span class="article-score ms-auto">@article.FinalScore.ToString("F0")点</span>
                                     </div>
                                 </div>
                             </div>
@@ -343,18 +328,16 @@ else
                 @if (!academicArticles.Any())
                 {
                     <div class="empty-state">
-                        <p class="mb-0">今週の研究はありません</p>
+                        <p class="mb-0">おすすめ記事はありません</p>
                     </div>
                 }
                 else
                 {
-                    var academicRank = 0;
                     foreach (var article in academicArticles)
                     {
-                        academicRank++;
                         <div class="article-item" @key="article.Id">
                             <div class="d-flex gap-2">
-                                <span class="article-rank">@academicRank.</span>
+                                <span style="font-size: 1rem;">🔥</span>
                                 <div class="flex-grow-1">
                                     <a href="@article.Url" target="_blank"
                                        class="article-title text-decoration-none d-block"
@@ -364,7 +347,6 @@ else
                                     <div class="article-meta d-flex gap-2 mt-1">
                                         <span>@article.Source.Name</span>
                                         <span>@article.CollectedAt.ToString("M/d")</span>
-                                        <span class="article-score ms-auto">@article.FinalScore.ToString("F0")点</span>
                                     </div>
                                 </div>
                             </div>
@@ -438,11 +420,13 @@ else
         }
     }
 
+    private const int RecommendThreshold = 17;  // おすすめ表示の閾値（0-20）
+
     private async Task LoadCategoryArticles()
     {
-        var newsTask = ArticleService.GetWeeklyByCategoryAsync(SourceCategory.News, selectedKeywordId, 10);
-        var techTask = ArticleService.GetWeeklyByCategoryAsync(SourceCategory.Technology, selectedKeywordId, 10);
-        var academicTask = ArticleService.GetWeeklyByCategoryAsync(SourceCategory.Academic, selectedKeywordId, 10);
+        var newsTask = ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, 10);
+        var techTask = ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, 10);
+        var academicTask = ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, 10);
 
         await Task.WhenAll(newsTask, techTask, academicTask);
 

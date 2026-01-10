@@ -1,123 +1,103 @@
 namespace QInfoRanker.Infrastructure.Scoring;
 
 /// <summary>
-/// アンサンブル評価システムの設定
-/// 複数のJudgeモデルによる並列評価とMeta-Judgeによる統合評価を構成
-/// 常にアンサンブル評価を使用（EnableEnsembleフラグは廃止）
+/// 本評価（Ensemble Scoring）の設定
+/// フィルタリング後の記事に対して5軸評価を実行
+///
+/// アーキテクチャ:
+/// 1. Filtering (BatchScoring.Filtering) - 関連性フィルタリング（高速・低コスト）
+/// 2. Ensemble (この設定) - 5軸評価（高品質モデル）
 /// </summary>
 public class EnsembleScoringOptions
 {
     public const string SectionName = "EnsembleScoring";
 
     /// <summary>
-    /// Judge モデルの構成リスト（2つ推奨：汎用評価 + 技術評価）
+    /// 評価に使用するモデルのデプロイメント名
+    /// 推論モデル（o3-mini, gpt-5等）を推奨
     /// </summary>
+    public string DeploymentName { get; set; } = "o3-mini";
+
+    /// <summary>
+    /// 1回のAPI呼び出しで評価する記事数
+    /// 推奨: 3-5件（精度とコストのバランス）
+    /// </summary>
+    public int BatchSize { get; set; } = 5;
+
+    /// <summary>
+    /// 評価のタイムアウト（ミリ秒）
+    /// </summary>
+    public int TimeoutMs { get; set; } = 120000;
+
+    /// <summary>
+    /// 生成時の温度パラメータ（通常モデル専用）
+    /// 推論モデル(o3, gpt-5等)では自動的に無視される
+    /// </summary>
+    public float? Temperature { get; set; }
+
+    /// <summary>
+    /// 最大トークン数（通常モデル専用）
+    /// 推論モデルでは自動的に無視される
+    /// </summary>
+    public int MaxTokens { get; set; } = 4000;
+
+    #region 後方互換性（非推奨）
+
+    /// <summary>
+    /// 旧: Judgeモデル構成リスト
+    /// 新アーキテクチャでは使用しない。DeploymentNameを使用すること。
+    /// </summary>
+    [Obsolete("Use DeploymentName instead. Multi-judge evaluation has been replaced with unified evaluation.")]
     public List<JudgeModelConfiguration> Judges { get; set; } = new();
 
     /// <summary>
-    /// Meta-Judge（最終統合評価）の構成
+    /// 旧: Meta-Judge構成
+    /// 新アーキテクチャでは使用しない。DeploymentNameを使用すること。
     /// </summary>
+    [Obsolete("Use DeploymentName instead. Meta-judge has been removed in favor of unified evaluation.")]
     public MetaJudgeConfiguration MetaJudge { get; set; } = new();
 
     /// <summary>
-    /// 同時に実行するJudgeの最大数
+    /// 旧: 同時実行Judge数
     /// </summary>
+    [Obsolete("Multi-judge evaluation has been removed.")]
     public int MaxParallelJudges { get; set; } = 2;
 
     /// <summary>
-    /// 各Judgeのタイムアウト（ミリ秒）
+    /// 旧: Judgeタイムアウト
     /// </summary>
-    public int JudgeTimeoutMs { get; set; } = 60000;
+    [Obsolete("Use TimeoutMs instead.")]
+    public int JudgeTimeoutMs { get => TimeoutMs; set => TimeoutMs = value; }
+
+    #endregion
 }
 
 /// <summary>
-/// 個別のJudgeモデルの構成
+/// 旧: Judgeモデル構成（後方互換性のため残存）
 /// </summary>
+[Obsolete("Multi-judge evaluation has been removed. Use EnsembleScoringOptions.DeploymentName instead.")]
 public class JudgeModelConfiguration
 {
-    /// <summary>
-    /// Judge の一意識別子（例: "JudgeA", "JudgeB"）
-    /// </summary>
     public string JudgeId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 表示名（例: "gpt-5 (汎用評価)"）
-    /// 未設定の場合はJudgeIdが使用される
-    /// </summary>
     public string DisplayName { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 実効表示名（DisplayNameが空の場合はJudgeIdを使用）
-    /// </summary>
     public string EffectiveDisplayName => string.IsNullOrEmpty(DisplayName) ? JudgeId : DisplayName;
-
-    /// <summary>
-    /// Azure OpenAI デプロイメント名
-    /// これによりモデルの機能（推論モデルかどうか）が自動判定される
-    /// </summary>
     public string DeploymentName { get; set; } = string.Empty;
-
-    /// <summary>
-    /// このJudgeの重み（最終スコア計算時に使用）
-    /// </summary>
     public double Weight { get; set; } = 1.0;
-
-    /// <summary>
-    /// 専門分野（null: 汎用, "technical": 技術評価, "reasoning": 推論評価）
-    /// プロンプトのカスタマイズに使用
-    /// </summary>
     public string? Specialty { get; set; }
-
-    /// <summary>
-    /// 最大トークン数のオーバーライド（通常モデル専用）
-    /// 推論モデル(gpt-5, o3等)では無視される（max_tokensをサポートしないため）
-    /// 0以下の場合はModelCapabilities.DefaultMaxTokensが使用される
-    /// </summary>
     public int MaxTokens { get; set; } = 0;
-
-    /// <summary>
-    /// 生成時の温度パラメータのオーバーライド（通常モデル専用）
-    /// 推論モデル(gpt-5, o3等)では無視される（temperatureをサポートしないため）
-    /// nullまたは未指定の場合はModelCapabilities.DefaultTemperatureが使用される
-    /// </summary>
     public float? Temperature { get; set; }
-
-    /// <summary>
-    /// このJudgeを有効にするか
-    /// </summary>
     public bool IsEnabled { get; set; } = true;
 }
 
 /// <summary>
-/// Meta-Judge（統合評価モデル）の構成
+/// 旧: Meta-Judge構成（後方互換性のため残存）
 /// </summary>
+[Obsolete("Meta-judge has been removed. Use EnsembleScoringOptions.DeploymentName instead.")]
 public class MetaJudgeConfiguration
 {
-    /// <summary>
-    /// Meta-Judgeを有効にするか
-    /// </summary>
     public bool IsEnabled { get; set; } = true;
-
-    /// <summary>
-    /// Azure OpenAI デプロイメント名
-    /// 推論モデル(gpt-5, o3等)推奨。モデル機能は自動判定される
-    /// </summary>
-    public string DeploymentName { get; set; } = "o3-pro";
-
-    /// <summary>
-    /// 最大トークン数のオーバーライド（通常モデル専用）
-    /// 推論モデル(gpt-5, o3等)では無視される
-    /// </summary>
+    public string DeploymentName { get; set; } = "o3-mini";
     public int MaxTokens { get; set; } = 0;
-
-    /// <summary>
-    /// 生成時の温度パラメータのオーバーライド（通常モデル専用）
-    /// 推論モデル(gpt-5, o3等)では無視される
-    /// </summary>
     public float? Temperature { get; set; }
-
-    /// <summary>
-    /// 矛盾検出の閾値（各軸のスコア差がこの値を超えたら矛盾とみなす）
-    /// </summary>
     public double ContradictionThreshold { get; set; } = 15.0;
 }

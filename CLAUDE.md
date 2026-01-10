@@ -13,20 +13,18 @@ QInfoRankerは、キーワードベースの情報収集・ランキングシス
 | 用語 | 設定キー | 説明 |
 |------|----------|------|
 | **Filtering** | `BatchScoring.Filtering` | 関連性フィルタリング。0-10点で判定し閾値未満を除外 |
-| **Ensemble** | `EnsembleScoring` | アンサンブル評価。複数Judge + MetaJudgeによる本評価（常に有効） |
-| **Judge** | `EnsembleScoring.Judges` | 個別の評価モデル（GeneralEvaluator, TechExpert等） |
-| **MetaJudge** | `EnsembleScoring.MetaJudge` | 各Judgeの評価を統合する最終評価モデル |
-| **EnsembleRelevanceScore** | `Article.EnsembleRelevanceScore` | アンサンブル評価での関連性スコア（0-20点） |
-| **EnsembleRelevanceThreshold** | `Scoring.EnsembleRelevanceThreshold` | アンサンブル評価での関連性閾値（この値未満は除外） |
+| **Ensemble** | `EnsembleScoring` | 本評価。単一の高性能モデルによる5軸評価 |
+| **EnsembleRelevanceScore** | `Article.EnsembleRelevanceScore` | 本評価での関連性スコア（0-20点） |
+| **EnsembleRelevanceThreshold** | `Scoring.EnsembleRelevanceThreshold` | 本評価での関連性閾値（この値未満は除外） |
 
 ### 廃止された用語（使用禁止）
 
 | 旧用語 | 新用語 | 理由 |
 |--------|--------|------|
 | Stage1 | Filtering | 役割が明確になるため |
-| Stage2 | Ensemble | アンサンブル評価を表す |
-| Stage2RelevanceScore | EnsembleRelevanceScore | アンサンブル評価であることを明示 |
-| Stage2RelevanceThreshold | EnsembleRelevanceThreshold | 同上 |
+| Stage2 | Ensemble | 本評価を表す |
+| Judge | - | v2で廃止（単一モデル統一評価に移行） |
+| MetaJudge | - | v2で廃止（単一モデル統一評価に移行） |
 
 ## アーキテクチャ
 
@@ -104,7 +102,7 @@ dotnet test
 
 ### スコアリングの流れ
 1. **Filtering（関連性フィルタリング）**: キーワードとの関連度を0-10でスコアリング、閾値未満を除外
-2. **Ensemble（アンサンブル評価）**: 複数Judge + MetaJudgeで5軸評価（各0-20点、合計100点満点）
+2. **Ensemble（本評価）**: 単一の高性能モデルで5軸評価（各0-20点、合計100点満点）
    - relevance: 最終関連性（EnsembleRelevanceScore）
    - technical: 技術的深さ
    - novelty: 新規性
@@ -112,7 +110,7 @@ dotnet test
    - quality: 情報の質
 3. **最終スコア**: `(NativeScore × Weight + LlmScore × Weight) × AuthorityBonus`
 
-詳細は [SCORING_OVERVIEW.md](SCORING_OVERVIEW.md) を参照。
+詳細は [doc/SCORING_OVERVIEW.md](doc/SCORING_OVERVIEW.md) を参照。
 
 ## 設定
 
@@ -132,11 +130,26 @@ dotnet test
   - `Normal`（デフォルト）: 通常（閾値 3.0）
   - `Strict`: 厳格（閾値 6.0）
 
+### 設定例（appsettings.json）
+```json
+{
+  "BatchScoring": {
+    "FilteringPreset": "Normal",
+    "Filtering": { "DeploymentName": "gpt-5-nano" }
+  },
+  "EnsembleScoring": {
+    "DeploymentName": "o3-mini",
+    "BatchSize": 5
+  },
+  "WeeklySummary": { "DeploymentName": "o3-mini" }
+}
+```
+
 ### 関連ファイル
 - プリセット定義: `Infrastructure/Scoring/ScoringPreset.cs`
 - スコアリングオプション: `Infrastructure/Scoring/ScoringOptions.cs`
 - バッチオプション: `Infrastructure/Scoring/BatchScoringOptions.cs`
-- アンサンブルオプション: `Infrastructure/Scoring/EnsembleScoringOptions.cs`
+- 本評価オプション: `Infrastructure/Scoring/EnsembleScoringOptions.cs`
 - 週次まとめオプション: `Infrastructure/Scoring/WeeklySummaryOptions.cs`
 - スコアリングサービス: `Infrastructure/Scoring/ScoringService.cs`
 
@@ -157,7 +170,7 @@ dotnet test
 ### 進捗通知の仕組み
 収集処理は `IProgress<ScoringProgress>` コールバックを使用してリアルタイム進捗を報告:
 - **Filtering**: 関連性フィルタリングの進捗と通過件数を表示
-- **Ensemble**: アンサンブル評価の進捗を表示
+- **Ensemble**: 本評価の進捗を表示
 - UIは5秒ごとのポーリングで `CollectionQueue.GetAllStatuses()` から更新
 
 ### スコアリング関連の変更
