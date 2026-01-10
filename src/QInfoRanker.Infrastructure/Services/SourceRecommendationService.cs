@@ -98,20 +98,45 @@ public class SourceRecommendationService : ISourceRecommendationService
         var prompt = $$"""
             キーワード「{{keyword}}」を分析して、英語での検索キーワードを生成してください。
 
+            【重要】固有名詞（会社名、製品名、サービス名、人名、ブランド名など）の場合:
+            - 意味の拡張や類語展開は行わないでください
+            - 元のキーワードと、その読み仮名・英語表記のみを出力してください
+            - 事業内容や関連分野への展開は禁止です
+
             JSON形式でのみ回答（日本語で）:
             {
               "detected_language": "japanese|english|both",
               "category": "technology|science|business|news|entertainment|medical|finance|academic|social|other",
+              "is_proper_noun": true/false,
               "reasoning": "キーワードの分析結果（日本語、1-2文）",
               "english_aliases": "英語での検索キーワード（カンマ区切り、2-3個）"
             }
 
-            例: キーワード「量子コンピュータ」の場合
+            例1: キーワード「量子コンピュータ」の場合（一般名詞）
             {
               "detected_language": "japanese",
               "category": "technology",
+              "is_proper_noun": false,
               "reasoning": "量子力学を応用したコンピュータ技術に関するキーワード",
               "english_aliases": "quantum computer, quantum computing"
+            }
+
+            例2: キーワード「HACARUS」の場合（固有名詞・会社名）
+            {
+              "detected_language": "english",
+              "category": "business",
+              "is_proper_noun": true,
+              "reasoning": "日本のAIスタートアップ企業の社名",
+              "english_aliases": "HACARUS"
+            }
+
+            例3: キーワード「トヨタ」の場合（固有名詞・会社名）
+            {
+              "detected_language": "japanese",
+              "category": "business",
+              "is_proper_noun": true,
+              "reasoning": "日本の自動車メーカーの社名",
+              "english_aliases": "Toyota, トヨタ"
             }
             """;
 
