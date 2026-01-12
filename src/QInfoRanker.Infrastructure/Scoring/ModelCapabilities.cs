@@ -29,17 +29,21 @@ public static class ModelCapabilities
         "o4",           // o4-mini
         "codex-mini",   // codex-mini (reasoning version)
 
-        // GPT-5 series (all are reasoning models)
-        "gpt-5",        // gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-codex, gpt-5-pro, gpt-5-chat
+        // GPT-5 series (full models are reasoning models, nano/mini are excluded in NonReasoningModelPrefixes)
+        "gpt-5",        // gpt-5, gpt-5-codex, gpt-5-pro, gpt-5-chat
                         // gpt-5.1, gpt-5.1-chat, gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.1-codex-max, gpt-5.2
+                        // Note: gpt-5-nano, gpt-5-mini are checked first in NonReasoningModelPrefixes
     };
 
     /// <summary>
     /// 非推論モデル (通常モデル) のパターン
     /// これらは temperature/max_tokens をサポートする
+    /// 注: gpt-5-nano, gpt-5-mini は軽量モデルで reasoning_effort をサポートしないため除外
     /// </summary>
     private static readonly string[] NonReasoningModelPrefixes = new[]
     {
+        "gpt-5-nano",   // gpt-5-nano: 軽量モデル、reasoning_effort 非対応
+        "gpt-5-mini",   // gpt-5-mini: 軽量モデル、reasoning_effort 非対応
         "gpt-4o",       // gpt-4o, gpt-4o-mini
         "gpt-4",        // gpt-4, gpt-4-turbo, gpt-4-32k
         "gpt-3.5",      // gpt-3.5-turbo

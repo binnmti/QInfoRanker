@@ -1,0 +1,28 @@
+# Example Terraform variables file
+# Copy this file to terraform.tfvars and fill in the values
+
+# Required: Azure Subscription ID
+subscription_id = "your-subscription-id-here"
+
+# Required: SQL Server admin password (must meet Azure complexity requirements)
+# At least 8 characters, including uppercase, lowercase, number, and special character
+sql_admin_password = "YourSecurePassword123!"
+
+# Required: Azure OpenAI settings
+azure_openai_endpoint = "https://your-openai-resource.openai.azure.com/"
+azure_openai_api_key  = "your-openai-api-key-here"
+
+# Optional: Override defaults
+# project_name = "qinforanker"
+# environment  = "prod"
+# location     = "japaneast"
+
+# Optional: Collection schedule (UTC time)
+# Default: 21:00 UTC = 06:00 JST
+# collection_schedule = "0 21 * * *"
+
+# Optional: App Service SKU
+# app_service_sku = "B1"
+
+# Optional: Custom domain
+# custom_domain = "qinforanker.example.com"

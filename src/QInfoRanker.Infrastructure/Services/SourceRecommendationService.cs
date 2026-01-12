@@ -63,6 +63,9 @@ public class SourceRecommendationService : ISourceRecommendationService
         {
             try
             {
+                _logger.LogInformation("Requesting keyword analysis for '{Keyword}' using model: {Model}",
+                    keyword, _openAIOptions.DeploymentName);
+
                 var analysis = await GetKeywordAnalysisAsync(keyword, cancellationToken);
                 if (analysis != null)
                 {
@@ -70,16 +73,29 @@ public class SourceRecommendationService : ISourceRecommendationService
                     result.DetectedLanguage = analysis.DetectedLanguage;
                     result.DetectedCategory = analysis.Category;
                     result.EnglishAliases = analysis.EnglishAliases;
+
+                    _logger.LogInformation(
+                        "Keyword analysis successful for '{Keyword}': Language={Language}, Category={Category}, Aliases='{Aliases}'",
+                        keyword, analysis.DetectedLanguage, analysis.Category, analysis.EnglishAliases);
+                }
+                else
+                {
+                    _logger.LogWarning("Keyword analysis returned null for '{Keyword}'", keyword);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get keyword analysis for '{Keyword}'. Continuing without aliases.", keyword);
+                _logger.LogWarning(ex, "Failed to get keyword analysis for '{Keyword}'. Continuing without aliases. " +
+                    "Endpoint={Endpoint}, Model={Model}",
+                    keyword, _openAIOptions.Endpoint, _openAIOptions.DeploymentName);
             }
         }
         else
         {
-            _logger.LogWarning("Azure OpenAI not configured. Skipping English alias generation.");
+            _logger.LogWarning("Azure OpenAI not configured (ChatClient is null). " +
+                "Endpoint={Endpoint}, ApiKey={HasKey}. Skipping English alias generation.",
+                _openAIOptions.Endpoint ?? "null",
+                !string.IsNullOrEmpty(_openAIOptions.ApiKey));
         }
 
         _logger.LogInformation(

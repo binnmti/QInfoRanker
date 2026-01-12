@@ -1,0 +1,103 @@
+# Worker Deploy - Container Apps Job デプロイ
+# Worker層または共有層に変更があった場合に自動実行
+
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/QInfoRanker.Worker/**'
+      - 'src/QInfoRanker.Core/**'
+      - 'src/QInfoRanker.Infrastructure/**'
+      - '.github/workflows/worker-deploy.yml'
+  workflow_dispatch:  # 手動実行も可能
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  ACR_NAME: 'qinforankeracr'
+  IMAGE_NAME: 'qinforanker-worker'
+  RESOURCE_GROUP: 'qinforanker-rg'
+  JOB_NAME: 'qinforanker-job'
+
+jobs:
+  build-and-push:
+    name: Build and Push Image
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./src/QInfoRanker.Worker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to Container Apps Job
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update Container Apps Job
+        run: |
+          # コミットSHAをタグとして使用
+          IMAGE_TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+          echo "Updating job with image: $IMAGE_TAG"
+
+          # Container Apps Job のイメージを更新
+          az containerapp job update \
+            --name ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image "$IMAGE_TAG"
+
+      - name: Azure Logout
+        run: az logout
+        if: always()
+
+      - name: Deployment Summary
+        run: |
+          echo "## Worker Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Job Name:** ${{ env.JOB_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

@@ -1,5 +1,6 @@
 @page "/top10"
 @page "/weekly-summary"
+@attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @using QInfoRanker.Core.Entities
 @using QInfoRanker.Core.Enums
@@ -408,10 +409,9 @@ else
 
         try
         {
-            await Task.WhenAll(
-                LoadCategoryArticles(),
-                LoadSummary()
-            );
+            // DbContext はスレッドセーフではないため順次実行
+            await LoadCategoryArticles();
+            await LoadSummary();
         }
         finally
         {
@@ -424,15 +424,10 @@ else
 
     private async Task LoadCategoryArticles()
     {
-        var newsTask = ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, 10);
-        var techTask = ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, 10);
-        var academicTask = ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, 10);
-
-        await Task.WhenAll(newsTask, techTask, academicTask);
-
-        newsArticles = await newsTask;
-        techArticles = await techTask;
-        academicArticles = await academicTask;
+        // DbContext はスレッドセーフではないため順次実行
+        newsArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, 10);
+        techArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, 10);
+        academicArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, 10);
 
         // トレンドタグを抽出（シンプル版：タイトルから頻出単語を抽出）
         newsTrendTags = ExtractSimpleTrendTags(newsArticles);

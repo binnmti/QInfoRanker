@@ -1,0 +1,28 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+@inject IConfiguration Configuration
+
+@{
+    var clientId = Configuration["AzureAd:ClientId"];
+    var isAuthConfigured = !string.IsNullOrEmpty(clientId) && clientId != "YOUR_CLIENT_ID";
+}
+
+<AuthorizeView>
+    <Authorized>
+        @if (isAuthConfigured)
+        {
+            <span class="me-3">@context.User.Identity?.Name</span>
+            <a href="MicrosoftIdentity/Account/SignOut" class="btn btn-outline-secondary btn-sm">ログアウト</a>
+        }
+        else
+        {
+            <span class="badge bg-secondary">開発モード</span>
+        }
+    </Authorized>
+    <NotAuthorized>
+        @if (isAuthConfigured)
+        {
+            <a href="MicrosoftIdentity/Account/SignIn" class="btn btn-primary btn-sm">ログイン</a>
+        }
+    </NotAuthorized>
+</AuthorizeView>

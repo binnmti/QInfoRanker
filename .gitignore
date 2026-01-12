@@ -432,3 +432,26 @@ secrets.json
 # Windows reserved device names
 nul
 NUL
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Temporary files and archives
+*.zip
+app-logs/
+
+# Docker publish output
+**/obj/Docker/

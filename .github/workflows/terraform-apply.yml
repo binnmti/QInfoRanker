@@ -1,0 +1,80 @@
+# Terraform Apply - 手動実行（承認必須）
+# インフラ変更を適用するための手動ワークフロー
+
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to confirm infrastructure changes'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TERRAFORM_VERSION: '1.5.0'
+  WORKING_DIRECTORY: './infra'
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+jobs:
+  validate-input:
+    name: Validate Input
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: github.event.inputs.confirm != 'apply'
+        run: |
+          echo "::error::You must type 'apply' to confirm infrastructure changes."
+          exit 1
+
+  apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: validate-input
+    environment: production  # GitHub Environment protection rules
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Create tfvars
+        run: |
+          cat > terraform.tfvars <<EOF
+          subscription_id    = "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          sql_admin_password = "${{ secrets.SQL_ADMIN_PASSWORD }}"
+          openai_endpoint    = "${{ secrets.OPENAI_ENDPOINT }}"
+          openai_api_key     = "${{ secrets.OPENAI_API_KEY }}"
+          EOF
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=tfplan
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Output Results
+        id: outputs
+        run: |
+          echo "## Terraform Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          terraform output -no-color >> $GITHUB_STEP_SUMMARY
+        working-directory: ${{ env.WORKING_DIRECTORY }}
