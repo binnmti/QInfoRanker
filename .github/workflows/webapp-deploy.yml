@@ -18,7 +18,7 @@ permissions:
   id-token: write
 
 env:
-  DOTNET_VERSION: '9.0.x'
+  DOTNET_VERSION: '8.0.x'
   WEBAPP_NAME: 'qinforanker'
   WEBAPP_PACKAGE_PATH: './publish'
 
