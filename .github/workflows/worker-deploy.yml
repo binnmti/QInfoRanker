@@ -20,7 +20,7 @@ permissions:
 env:
   ACR_NAME: 'qinforankeracr'
   IMAGE_NAME: 'qinforanker-worker'
-  RESOURCE_GROUP: 'qinforanker-rg'
+  RESOURCE_GROUP: 'QInfoRanker'
   JOB_NAME: 'qinforanker-job'
 
 jobs:
