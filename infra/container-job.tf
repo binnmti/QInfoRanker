@@ -60,7 +60,7 @@ resource "azurerm_container_app_job" "collection" {
       # Environment variables
       env {
         name  = "ConnectionStrings__DefaultConnection"
-        value = "Server=tcp:${azurerm_mssql_server.main.fully_qualified_domain_name},1433;Initial Catalog=${azurerm_mssql_database.main.name};Persist Security Info=False;User ID=${var.sql_admin_login};Password=${var.sql_admin_password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+        value = "Server=tcp:${azurerm_mssql_server.main.fully_qualified_domain_name},1433;Initial Catalog=${azurerm_mssql_database.main.name};Persist Security Info=False;User ID=${var.sql_admin_login};Password=${var.sql_admin_password};MultipleActiveResultSets=True;Encrypt=True;TrustServerCertificate=False;Connection Timeout=120;Command Timeout=120;"
       }
 
       env {
@@ -101,6 +101,11 @@ resource "azurerm_container_app_job" "collection" {
       env {
         name  = "EnsembleScoring__BatchSize"
         value = "5"
+      }
+
+      env {
+        name  = "Scoring__EnsembleRelevanceThreshold"
+        value = "6"
       }
 
       env {

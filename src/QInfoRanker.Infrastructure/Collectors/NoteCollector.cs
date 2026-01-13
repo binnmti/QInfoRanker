@@ -117,7 +117,6 @@ public class NoteCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = name,
                     Url = url,
                     Summary = body?.Length > 500 ? body[..500] + "..." : body,
@@ -180,7 +179,6 @@ public class NoteCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = title,
                     Url = link,
                     Summary = description?.Length > 500 ? description[..500] + "..." : description,

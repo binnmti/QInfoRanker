@@ -76,7 +76,6 @@ public class GoogleNewsCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = CleanHtmlEntities(title),
                     Url = link,
                     Summary = summary?.Length > 500 ? summary[..500] + "..." : summary,

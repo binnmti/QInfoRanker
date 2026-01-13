@@ -57,7 +57,6 @@ public class HackerNewsCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = hit.Title,
                     Url = hit.Url,
                     Summary = hit.StoryText?.Length > 500

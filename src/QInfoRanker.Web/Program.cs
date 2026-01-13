@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 using QInfoRanker.Infrastructure;
@@ -50,6 +52,10 @@ builder.Services.AddSignalR(options =>
 // Add Infrastructure services
 builder.Services.AddInfrastructure(builder.Configuration);
 
+// ヘルスチェック（Azure App Service 用）
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>("database", tags: new[] { "db", "sql" });
+
 var app = builder.Build();
 
 // Initialize database
@@ -95,5 +101,17 @@ if (isAuthConfigured)
 
 // SignalRハブのマッピング
 app.MapHub<CollectionProgressHub>("/hubs/collection-progress");
+
+// ヘルスチェックエンドポイント（Azure App Service 用、認証不要）
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    AllowCachingResponses = false,
+    ResultStatusCodes =
+    {
+        [HealthStatus.Healthy] = StatusCodes.Status200OK,
+        [HealthStatus.Degraded] = StatusCodes.Status200OK,
+        [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable
+    }
+}).AllowAnonymous();
 
 app.Run();

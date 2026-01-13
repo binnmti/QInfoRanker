@@ -67,7 +67,6 @@ public class RedditCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = post.Title,
                     Url = url,
                     Summary = post.Selftext?.Length > 500

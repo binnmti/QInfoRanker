@@ -68,7 +68,6 @@ public class ZennCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = item.Title,
                     Url = articleUrl,
                     Summary = $"{item.Emoji} {item.ArticleType ?? "tech"} - {item.BodyLettersCount?.ToString("N0") ?? "?"} 文字",

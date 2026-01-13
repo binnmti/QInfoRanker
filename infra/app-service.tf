@@ -77,13 +77,13 @@ resource "azurerm_linux_web_app" "main" {
     "AzureAd__Instance"    = "https://login.microsoftonline.com/"
     "AzureAd__CallbackPath" = "/signin-oidc"
 
-    # Database settings
+    # Database settings (Connection Timeout extended for Azure SQL Serverless cold start)
     "UseSqlite"                          = "false"
-    "ConnectionStrings__DefaultConnection" = "Server=tcp:${azurerm_mssql_server.main.fully_qualified_domain_name},1433;Initial Catalog=${azurerm_mssql_database.main.name};Persist Security Info=False;User ID=${var.sql_admin_login};Password=${var.sql_admin_password};MultipleActiveResultSets=True;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+    "ConnectionStrings__DefaultConnection" = "Server=tcp:${azurerm_mssql_server.main.fully_qualified_domain_name},1433;Initial Catalog=${azurerm_mssql_database.main.name};Persist Security Info=False;User ID=${var.sql_admin_login};Password=${var.sql_admin_password};MultipleActiveResultSets=True;Encrypt=True;TrustServerCertificate=False;Connection Timeout=120;Command Timeout=120;"
 
-    # Azure OpenAI settings
-    "AzureOpenAI__Endpoint" = var.openai_endpoint
-    "AzureOpenAI__ApiKey"   = var.openai_api_key
+    # Azure OpenAI settings (from Terraform-managed resource)
+    "AzureOpenAI__Endpoint" = azurerm_cognitive_account.openai.endpoint
+    "AzureOpenAI__ApiKey"   = azurerm_cognitive_account.openai.primary_access_key
   }
 
   # Managed Identity for Key Vault access

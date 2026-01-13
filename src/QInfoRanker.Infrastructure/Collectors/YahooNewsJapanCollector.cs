@@ -157,7 +157,6 @@ public class YahooNewsJapanCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = title,
                     Url = link,
                     Summary = description?.Length > 500 ? description[..500] + "..." : description,

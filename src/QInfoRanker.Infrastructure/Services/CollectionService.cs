@@ -76,8 +76,8 @@ public class CollectionService : ICollectionService
 
         _logger.LogInformation("Starting collection for keyword: {Keyword} (DebugMode={DebugMode})", keyword.Term, debugMode);
 
-        var sources = await _sourceService.GetByKeywordIdAsync(keywordId, cancellationToken);
-        var activeSources = sources.Where(s => s.IsActive).ToList();
+        // グローバルソースを取得（全キーワード共通）
+        var activeSources = (await _sourceService.GetActiveAsync(cancellationToken)).ToList();
         var sourceDict = activeSources.ToDictionary(s => s.Id);
         var searchTerms = keyword.GetAllSearchTerms().ToList();
         var since = DateTime.UtcNow.AddMonths(-1);
@@ -129,6 +129,13 @@ public class CollectionService : ICollectionService
                     {
                         var articles = await CollectFromSourceSafeAsync(source, searchTerm, since, debugMode, debugArticleLimit, cancellationToken);
                         var articleList = articles.ToList();
+
+                        // KeywordIdをセット（ソースがグローバル化されたため、CollectionServiceでセット）
+                        foreach (var article in articleList)
+                        {
+                            article.KeywordId = keywordId;
+                        }
+
                         sourceArticles.AddRange(articleList);
 
                         // 取得した記事を即座に通知（画面に動きを出す）
@@ -322,99 +329,35 @@ public class CollectionService : ICollectionService
         var scoredSoFar = 0;
         var progress = new Progress<ScoringProgress>(async p =>
         {
-            string message;
-            if (p.Stage == ScoringStage.RelevanceEvaluation)
+            try
             {
-                // フィルタリング段階: 関連ありと判定された記事数を表示
-                message = $"{source.Name}: フィルタ {p.CurrentBatch}/{p.TotalBatches} (通過: {p.RelevantCount}件)";
-            }
-            else
-            {
-                // 品質評価段階: スコアリング進捗を表示
-                scoredSoFar = p.ProcessedArticles;
-                message = $"{source.Name}: スコアリング {p.CurrentBatch}/{p.TotalBatches} ({p.ProcessedArticles}/{p.TotalArticles}件)";
-            }
-
-            await _progressNotifier.NotifyProgressAsync(new CollectionProgressEvent(
-                keywordId, keywordTerm,
-                p.Stage == ScoringStage.RelevanceEvaluation ? CollectionPhase.CollectingSource : CollectionPhase.ScoringSource,
-                source.Name, sourceIndex, totalSources,
-                totalArticlesSoFar + articles.Count,
-                totalArticlesSoFar + scoredSoFar,  // 品質評価完了分のみカウント
-                message
-            ));
-        });
-
-        // フィルタリング完了コールバック（Stage 1完了時に即座に採点待ちリストに追加）
-        Action<BatchRelevanceResult, IEnumerable<Article>> onRelevanceComplete = async (relevanceResult, relevantArticles) =>
-        {
-            var passedFilterInfos = relevanceResult.Evaluations
-                .Where(e => e.IsRelevant)
-                .Select(e =>
+                string message;
+                if (p.Stage == ScoringStage.RelevanceEvaluation)
                 {
-                    var article = relevantArticles.FirstOrDefault(a => a.Id == e.ArticleId);
-                    if (article == null) return null;
-                    return new PassedFilterArticleInfo(
-                        article.Id,
-                        article.Title,
-                        article.Url,
-                        article.PublishedAt,
-                        article.NativeScore,
-                        e.RelevanceScore
-                    );
-                })
-                .Where(p => p != null)
-                .Cast<PassedFilterArticleInfo>()
-                .ToList();
-
-            if (passedFilterInfos.Any())
-            {
-                await _progressNotifier.NotifyArticlesPassedFilterAsync(new ArticlesPassedFilterEvent(
-                    keywordId, source.Name, passedFilterInfos));
-            }
-        };
-
-        // 品質評価完了コールバック（各バッチ完了時に即座にDB保存＆採点待ちリストから削除）
-        Action<IEnumerable<Article>, IEnumerable<ArticleQuality>> onQualityBatchComplete = async (scoredArticles, qualityResults) =>
-        {
-            var scoredPreviews = new List<ScoredArticlePreview>();
-
-            foreach (var article in scoredArticles)
-            {
-                // 最終スコアを即座に計算
-                if (article.LlmScore.HasValue)
-                {
-                    article.FinalScore = _scoringService.CalculateFinalScore(article, source);
+                    // フィルタリング段階: 関連ありと判定された記事数を表示
+                    message = $"{source.Name}: フィルタ {p.CurrentBatch}/{p.TotalBatches} (通過: {p.RelevantCount}件)";
                 }
                 else
                 {
-                    // フォールバック計算（シンプル100点満点: 品質80点 + 関連20点）
-                    var relevanceScore = (article.RelevanceScore ?? 5) * 2;
-                    var qualityScore = 40; // LLMスコアなしの場合は中央値
-                    article.FinalScore = qualityScore + relevanceScore;
+                    // 品質評価段階: スコアリング進捗を表示
+                    scoredSoFar = p.ProcessedArticles;
+                    message = $"{source.Name}: スコアリング {p.CurrentBatch}/{p.TotalBatches} ({p.ProcessedArticles}/{p.TotalArticles}件)";
                 }
 
-                // 即座にDB保存（メイン一覧にすぐ反映されるように）
-                await _articleService.UpdateAsync(article, cancellationToken);
-
-                scoredPreviews.Add(new ScoredArticlePreview
-                {
-                    ArticleId = article.Id,
-                    Title = article.Title,
-                    Url = article.Url,
-                    SourceName = source.Name,
-                    PublishedAt = article.PublishedAt,
-                    NativeScore = article.NativeScore,
-                    RelevanceScore = article.RelevanceScore ?? 0,
-                    LlmScore = article.LlmScore ?? 0,
-                    FinalScore = article.FinalScore,
-                    SummaryJa = article.SummaryJa,
-                    ScoredAt = DateTime.UtcNow
-                });
+                await _progressNotifier.NotifyProgressAsync(new CollectionProgressEvent(
+                    keywordId, keywordTerm,
+                    p.Stage == ScoringStage.RelevanceEvaluation ? CollectionPhase.CollectingSource : CollectionPhase.ScoringSource,
+                    source.Name, sourceIndex, totalSources,
+                    totalArticlesSoFar + articles.Count,
+                    totalArticlesSoFar + scoredSoFar,  // 品質評価完了分のみカウント
+                    message
+                ));
             }
-
-            await _progressNotifier.NotifyArticlesQualityScoredAsync(keywordId, scoredPreviews);
-        };
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify scoring progress for {Source}", source.Name);
+            }
+        });
 
         // 本評価を実行
         _logger.LogInformation("Using unified evaluation with model: {DeploymentName}",

@@ -2,11 +2,11 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject ISourceService SourceService
-@inject IKeywordService KeywordService
 
 <PageTitle>Sources - QInfoRanker</PageTitle>
 
 <h1>Sources</h1>
+<p class="text-muted">全キーワード共通で使用する情報ソースを管理します。</p>
 
 <div class="mb-3">
     <button class="btn btn-primary" @onclick="ShowAddSourceModal">
@@ -28,12 +28,10 @@ else
         <thead>
             <tr>
                 <th>Name</th>
-                <th>Keyword</th>
                 <th>Type</th>
                 <th>Language</th>
                 <th>Category</th>
                 <th>Authority</th>
-                <th>AI Reason</th>
                 <th>Status</th>
                 <th>Actions</th>
             </tr>
@@ -48,12 +46,7 @@ else
                         {
                             <span class="badge bg-info ms-1">Auto</span>
                         }
-                        @if (source.IsTemplate)
-                        {
-                            <span class="badge bg-warning ms-1">Template</span>
-                        }
                     </td>
-                    <td>@(source.Keyword?.Term ?? "-")</td>
                     <td><span class="badge bg-secondary">@source.Type</span></td>
                     <td>
                         <span class="badge @GetLanguageBadgeClass(source.Language)">
@@ -66,18 +59,6 @@ else
                         </span>
                     </td>
                     <td>@source.AuthorityWeight.ToString("P0")</td>
-                    <td>
-                        @if (!string.IsNullOrEmpty(source.RecommendationReason))
-                        {
-                            <span class="text-muted small" title="@source.RecommendationReason">
-                                @TruncateReason(source.RecommendationReason)
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="text-muted">-</span>
-                        }
-                    </td>
                     <td>
                         @if (source.IsActive)
                         {
@@ -124,19 +105,6 @@ else
                         <label class="form-label">Search URL Template</label>
                         <input type="text" class="form-control" @bind="newSource.SearchUrlTemplate" placeholder="Use {keyword} as placeholder" />
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Keyword</label>
-                        <select class="form-select" @bind="selectedKeywordId">
-                            <option value="">-- Select Keyword --</option>
-                            @if (keywords != null)
-                            {
-                                @foreach (var kw in keywords)
-                                {
-                                    <option value="@kw.Id">@kw.Term</option>
-                                }
-                            }
-                        </select>
-                    </div>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -178,10 +146,6 @@ else
                         <input type="checkbox" class="form-check-input" @bind="newSource.HasNativeScore" />
                         <label class="form-check-label">Has Native Score</label>
                     </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" @bind="newSource.IsTemplate" />
-                        <label class="form-check-label">Template (applies to all keywords)</label>
-                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
@@ -195,11 +159,9 @@ else
 
 @code {
     private IEnumerable<Source>? sources;
-    private IEnumerable<Keyword>? keywords;
     private bool isLoading = true;
     private bool showModal = false;
     private Source newSource = new();
-    private int? selectedKeywordId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -210,7 +172,6 @@ else
     {
         isLoading = true;
         sources = await SourceService.GetAllAsync();
-        keywords = await KeywordService.GetAllAsync();
         isLoading = false;
     }
 
@@ -224,7 +185,6 @@ else
             Category = SourceCategory.Technology,
             IsActive = true
         };
-        selectedKeywordId = null;
         showModal = true;
     }
 
@@ -237,7 +197,6 @@ else
     {
         if (!string.IsNullOrWhiteSpace(newSource.Name) && !string.IsNullOrWhiteSpace(newSource.Url))
         {
-            newSource.KeywordId = selectedKeywordId;
             await SourceService.CreateAsync(newSource);
             showModal = false;
             await LoadData();
@@ -294,10 +253,4 @@ else
         SourceCategory.News => "bg-danger",
         _ => "bg-secondary"
     };
-
-    private string TruncateReason(string reason)
-    {
-        if (string.IsNullOrEmpty(reason)) return "-";
-        return reason.Length > 30 ? reason[..30] + "..." : reason;
-    }
 }
