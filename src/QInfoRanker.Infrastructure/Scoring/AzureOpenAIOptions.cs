@@ -6,7 +6,7 @@ public class AzureOpenAIOptions
 
     public string Endpoint { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
-    public string DeploymentName { get; set; } = "gpt-4o-mini";
+    public string DeploymentName { get; set; } = "gpt-5-nano";
     public int MaxTokens { get; set; } = 500;
     public float Temperature { get; set; } = 0.3f;
 }

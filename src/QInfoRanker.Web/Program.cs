@@ -1,9 +1,40 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Identity.Web;
+using Microsoft.Identity.Web.UI;
 using QInfoRanker.Infrastructure;
+using QInfoRanker.Web;
 using QInfoRanker.Infrastructure.Data;
 using QInfoRanker.Web.Components;
 using QInfoRanker.Web.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Azure AD 認証設定
+var azureAdSection = builder.Configuration.GetSection("AzureAd");
+var isAuthConfigured = !string.IsNullOrEmpty(azureAdSection["ClientId"])
+                       && azureAdSection["ClientId"] != "YOUR_CLIENT_ID";
+
+if (isAuthConfigured)
+{
+    // 本番環境: Azure AD認証
+    builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+        .AddMicrosoftIdentityWebApp(azureAdSection);
+
+    builder.Services.AddControllersWithViews()
+        .AddMicrosoftIdentityUI();
+}
+else
+{
+    // 開発環境: ダミー認証（全員認証済みとして扱う）
+    builder.Services.AddAuthentication("Dev")
+        .AddScheme<AuthenticationSchemeOptions, DevAuthenticationHandler>("Dev", null);
+}
+
+builder.Services.AddAuthorization();
+builder.Services.AddCascadingAuthenticationState();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -20,6 +51,10 @@ builder.Services.AddSignalR(options =>
 
 // Add Infrastructure services
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// ヘルスチェック（Azure App Service 用）
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>("database", tags: new[] { "db", "sql" });
 
 var app = builder.Build();
 
@@ -46,6 +81,11 @@ else
 app.UseHttpsRedirection();
 
 app.UseStaticFiles();
+
+// 認証・認可ミドルウェア（常に有効）
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseAntiforgery();
 
 app.MapRazorComponents<App>()
@@ -53,7 +93,25 @@ app.MapRazorComponents<App>()
     .AddInteractiveWebAssemblyRenderMode()
     .AddAdditionalAssemblies(typeof(QInfoRanker.Web.Client._Imports).Assembly);
 
+// Microsoft Identity UI のエンドポイント
+if (isAuthConfigured)
+{
+    app.MapControllers();
+}
+
 // SignalRハブのマッピング
 app.MapHub<CollectionProgressHub>("/hubs/collection-progress");
+
+// ヘルスチェックエンドポイント（Azure App Service 用、認証不要）
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    AllowCachingResponses = false,
+    ResultStatusCodes =
+    {
+        [HealthStatus.Healthy] = StatusCodes.Status200OK,
+        [HealthStatus.Degraded] = StatusCodes.Status200OK,
+        [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable
+    }
+}).AllowAnonymous();
 
 app.Run();

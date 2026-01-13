@@ -8,7 +8,6 @@ public class Keyword
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public ICollection<Source> Sources { get; set; } = new List<Source>();
     public ICollection<Article> Articles { get; set; } = new List<Article>();
 
     /// <summary>

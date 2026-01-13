@@ -55,7 +55,6 @@ public class QiitaCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = item.Title,
                     Url = item.Url,
                     Summary = item.Body?.Length > 500 ? item.Body[..500] + "..." : item.Body,

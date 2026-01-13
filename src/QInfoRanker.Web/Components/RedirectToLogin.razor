@@ -1,0 +1,19 @@
+@inject NavigationManager Navigation
+@inject IConfiguration Configuration
+
+@code {
+    protected override void OnInitialized()
+    {
+        var clientId = Configuration["AzureAd:ClientId"];
+        var isAuthConfigured = !string.IsNullOrEmpty(clientId) && clientId != "YOUR_CLIENT_ID";
+
+        if (isAuthConfigured)
+        {
+            // 本番環境: Azure AD ログインページへリダイレクト
+            var returnUrl = Uri.EscapeDataString(Navigation.Uri);
+            Navigation.NavigateTo($"MicrosoftIdentity/Account/SignIn?redirectUri={returnUrl}", forceLoad: true);
+        }
+        // 開発環境: DevAuthenticationHandler により常に認証済みのため、
+        // このコンポーネントは通常呼ばれない。呼ばれた場合は何もしない。
+    }
+}

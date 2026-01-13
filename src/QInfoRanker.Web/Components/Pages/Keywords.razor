@@ -1,5 +1,6 @@
 @page "/"
 @page "/keywords"
+@attribute [Authorize]
 @rendermode InteractiveServer
 @inject IKeywordService KeywordService
 @inject ICollectionQueue CollectionQueue
@@ -25,7 +26,7 @@
             }
         </button>
     </div>
-    <small class="text-muted">AIがキーワードに最適なソースを自動選定します</small>
+    <small class="text-muted">AIがキーワードの英語エイリアスを自動生成します</small>
 </div>
 
 @if (!string.IsNullOrEmpty(statusMessage))
@@ -62,7 +63,6 @@ else
                 <th>キーワード</th>
                 <th>別名 (英語)</th>
                 <th>状態</th>
-                <th>ソース</th>
                 <th>作成日</th>
                 <th>操作</th>
             </tr>
@@ -96,19 +96,6 @@ else
                         else
                         {
                             <span class="badge bg-secondary">無効</span>
-                        }
-                    </td>
-                    <td>
-                        @if (keyword.Sources.Any())
-                        {
-                            <span class="badge bg-info me-1">@keyword.Sources.Count sources</span>
-                            <small class="text-muted">
-                                @string.Join(", ", keyword.Sources.Select(s => s.Name))
-                            </small>
-                        }
-                        else
-                        {
-                            <span class="text-muted">No sources</span>
                         }
                     </td>
                     <td>@keyword.CreatedAt.ToString("yyyy-MM-dd")</td>
@@ -178,7 +165,7 @@ else
         if (!string.IsNullOrWhiteSpace(newKeywordTerm) && !isAdding)
         {
             isAdding = true;
-            statusMessage = $"AIがソースを選定中... ({newKeywordTerm})";
+            statusMessage = $"AIがエイリアスを生成中... ({newKeywordTerm})";
             isError = false;
             StateHasChanged();
 
@@ -189,24 +176,11 @@ else
                 newKeywordTerm = string.Empty;
                 await LoadKeywords();
 
-                // Get the created keyword with sources
+                // 作成されたキーワードを取得してエイリアスを表示
                 var createdKeyword = keywords?.FirstOrDefault(k => k.Id == keyword.Id);
-                if (createdKeyword != null)
+                if (createdKeyword != null && !string.IsNullOrEmpty(createdKeyword.Aliases))
                 {
-                    var parts = new List<string>();
-
-                    if (createdKeyword.Sources.Any())
-                    {
-                        var sourceNames = string.Join(", ", createdKeyword.Sources.Select(s => s.Name));
-                        parts.Add($"推薦ソース: {sourceNames}");
-                    }
-
-                    if (!string.IsNullOrEmpty(createdKeyword.Aliases))
-                    {
-                        parts.Add($"英語エイリアス: {createdKeyword.Aliases}");
-                    }
-
-                    statusMessage = $"「{term}」を追加しました。" + (parts.Any() ? " " + string.Join(" / ", parts) : "");
+                    statusMessage = $"「{term}」を追加しました。英語エイリアス: {createdKeyword.Aliases}";
                 }
                 else
                 {

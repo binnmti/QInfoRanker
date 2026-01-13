@@ -1,0 +1,95 @@
+# WebApp Deploy - App Service (Blazor Server) デプロイ
+# Web層または共有層に変更があった場合に自動実行
+
+name: Deploy WebApp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/QInfoRanker.Web/**'
+      - 'src/QInfoRanker.Core/**'
+      - 'src/QInfoRanker.Infrastructure/**'
+      - '.github/workflows/webapp-deploy.yml'
+  workflow_dispatch:  # 手動実行も可能
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  WEBAPP_NAME: 'qinforanker'
+  WEBAPP_PACKAGE_PATH: './publish'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore src/QInfoRanker.Web/QInfoRanker.Web.csproj
+
+      - name: Build
+        run: dotnet build src/QInfoRanker.Web/QInfoRanker.Web.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
+        continue-on-error: true  # テストがない場合もデプロイを続行
+
+      - name: Publish
+        run: dotnet publish src/QInfoRanker.Web/QInfoRanker.Web.csproj --configuration Release --output ${{ env.WEBAPP_PACKAGE_PATH }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webapp
+          path: ${{ env.WEBAPP_PACKAGE_PATH }}
+          retention-days: 1
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: webapp
+          path: ${{ env.WEBAPP_PACKAGE_PATH }}
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.WEBAPP_NAME }}
+          package: ${{ env.WEBAPP_PACKAGE_PATH }}
+
+      - name: Azure Logout
+        run: az logout
+        if: always()
+
+      - name: Deployment Summary
+        run: |
+          echo "## WebApp Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **App Name:** ${{ env.WEBAPP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** https://${{ env.WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

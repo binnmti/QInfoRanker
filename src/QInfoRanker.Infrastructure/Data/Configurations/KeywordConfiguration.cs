@@ -17,11 +17,6 @@ public class KeywordConfiguration : IEntityTypeConfiguration<Keyword>
         builder.HasIndex(k => k.Term)
             .IsUnique();
 
-        builder.HasMany(k => k.Sources)
-            .WithOne(s => s.Keyword)
-            .HasForeignKey(s => s.KeywordId)
-            .OnDelete(DeleteBehavior.SetNull);
-
         builder.HasMany(k => k.Articles)
             .WithOne(a => a.Keyword)
             .HasForeignKey(a => a.KeywordId)

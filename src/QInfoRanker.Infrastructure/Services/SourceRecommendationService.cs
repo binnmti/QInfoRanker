@@ -1,34 +1,31 @@
 using System.ClientModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
-using QInfoRanker.Core.Entities;
-using QInfoRanker.Core.Enums;
 using QInfoRanker.Core.Interfaces.Services;
-using QInfoRanker.Infrastructure.Data;
 using QInfoRanker.Infrastructure.Scoring;
 
 #pragma warning disable OPENAI001 // Type is for evaluation purposes only
 
 namespace QInfoRanker.Infrastructure.Services;
 
+/// <summary>
+/// キーワード分析サービス（英語エイリアス生成）
+/// ソース推薦は廃止（ソースはグローバル管理）
+/// </summary>
 public class SourceRecommendationService : ISourceRecommendationService
 {
-    private readonly AppDbContext _context;
     private readonly AzureOpenAIOptions _openAIOptions;
     private readonly ILogger<SourceRecommendationService> _logger;
     private readonly ChatClient? _chatClient;
 
     public SourceRecommendationService(
-        AppDbContext context,
         IOptions<AzureOpenAIOptions> openAIOptions,
         ILogger<SourceRecommendationService> logger)
     {
-        _context = context;
         _openAIOptions = openAIOptions.Value;
         _logger = logger;
 
@@ -51,18 +48,16 @@ public class SourceRecommendationService : ISourceRecommendationService
     public async Task<SourceRecommendationResult> RecommendSourcesAsync(string keyword, CancellationToken cancellationToken = default)
     {
         var result = new SourceRecommendationResult();
-        var templateSources = await _context.Sources
-            .Where(s => s.IsTemplate)
-            .ToListAsync(cancellationToken);
-
-        // 全テンプレートソースを収集対象とする
-        result.RecommendedSources = templateSources;
+        // ソースはグローバル管理のため、ここでは推薦不要（空リストを返す）
 
         // AIで英語エイリアスを生成
         if (_chatClient != null)
         {
             try
             {
+                _logger.LogInformation("Requesting keyword analysis for '{Keyword}' using model: {Model}",
+                    keyword, _openAIOptions.DeploymentName);
+
                 var analysis = await GetKeywordAnalysisAsync(keyword, cancellationToken);
                 if (analysis != null)
                 {
@@ -70,21 +65,33 @@ public class SourceRecommendationService : ISourceRecommendationService
                     result.DetectedLanguage = analysis.DetectedLanguage;
                     result.DetectedCategory = analysis.Category;
                     result.EnglishAliases = analysis.EnglishAliases;
+
+                    _logger.LogInformation(
+                        "Keyword analysis successful for '{Keyword}': Language={Language}, Category={Category}, Aliases='{Aliases}'",
+                        keyword, analysis.DetectedLanguage, analysis.Category, analysis.EnglishAliases);
+                }
+                else
+                {
+                    _logger.LogWarning("Keyword analysis returned null for '{Keyword}'", keyword);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get keyword analysis for '{Keyword}'. Continuing without aliases.", keyword);
+                _logger.LogWarning(ex, "Failed to get keyword analysis for '{Keyword}'. Continuing without aliases. " +
+                    "Endpoint={Endpoint}, Model={Model}",
+                    keyword, _openAIOptions.Endpoint, _openAIOptions.DeploymentName);
             }
         }
         else
         {
-            _logger.LogWarning("Azure OpenAI not configured. Skipping English alias generation.");
+            _logger.LogWarning("Azure OpenAI not configured (ChatClient is null). " +
+                "Endpoint={Endpoint}, ApiKey={HasKey}. Skipping English alias generation.",
+                _openAIOptions.Endpoint ?? "null",
+                !string.IsNullOrEmpty(_openAIOptions.ApiKey));
         }
 
         _logger.LogInformation(
-            "Using all {Count} sources for keyword '{Keyword}'. English aliases: {Aliases}",
-            templateSources.Count,
+            "Keyword analysis completed for '{Keyword}'. English aliases: {Aliases}",
             keyword,
             result.EnglishAliases ?? "none");
 
@@ -164,8 +171,13 @@ public class SourceRecommendationService : ISourceRecommendationService
             options: options,
             cancellationToken: cancellationToken);
 
-        var content = response.Value.Content[0].Text;
-        return ParseKeywordAnalysis(content);
+        var contentParts = response.Value.Content;
+        if (contentParts == null || contentParts.Count == 0 || string.IsNullOrEmpty(contentParts[0].Text))
+        {
+            _logger.LogWarning("Empty response from OpenAI for keyword analysis");
+            return null;
+        }
+        return ParseKeywordAnalysis(contentParts[0].Text);
     }
 
     private KeywordAnalysis? ParseKeywordAnalysis(string content)

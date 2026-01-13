@@ -16,10 +16,10 @@ public static class DbSeeder
         // データベースが存在しない場合のみ作成（既存データは保持）
         await context.Database.EnsureCreatedAsync();
 
-        // テンプレートソースは常に作成（キーワード作成時のベースとして必要）
-        if (!await context.Sources.AnyAsync(s => s.IsTemplate))
+        // グローバルソースを初期化（全キーワード共通）
+        if (!await context.Sources.AnyAsync())
         {
-            await SeedTemplateSourcesAsync(context);
+            await SeedSourcesAsync(context);
         }
 
         // サンプルデータは明示的に有効化された場合のみ作成（本番環境では不要）
@@ -29,9 +29,12 @@ public static class DbSeeder
         }
     }
 
-    private static async Task SeedTemplateSourcesAsync(AppDbContext context)
+    /// <summary>
+    /// グローバルソースのシード（全キーワード共通で使用）
+    /// </summary>
+    private static async Task SeedSourcesAsync(AppDbContext context)
     {
-        var templateSources = new List<Source>
+        var sources = new List<Source>
         {
             new()
             {
@@ -41,7 +44,6 @@ public static class DbSeeder
                 Type = SourceType.Rss,
                 HasNativeScore = true,
                 AuthorityWeight = 0.7,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.Japanese,
                 Category = SourceCategory.Technology
@@ -54,7 +56,6 @@ public static class DbSeeder
                 Type = SourceType.Api,
                 HasNativeScore = true,
                 AuthorityWeight = 0.7,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.Japanese,
                 Category = SourceCategory.Technology
@@ -67,7 +68,6 @@ public static class DbSeeder
                 Type = SourceType.Api,
                 HasNativeScore = true,
                 AuthorityWeight = 0.7,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.Japanese,
                 Category = SourceCategory.Technology
@@ -80,7 +80,6 @@ public static class DbSeeder
                 Type = SourceType.Api,
                 HasNativeScore = false,
                 AuthorityWeight = 0.9,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.Academic
@@ -93,7 +92,6 @@ public static class DbSeeder
                 Type = SourceType.Api,
                 HasNativeScore = true,
                 AuthorityWeight = 0.8,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.Technology
@@ -106,12 +104,11 @@ public static class DbSeeder
                 Type = SourceType.Api,
                 HasNativeScore = true,
                 AuthorityWeight = 0.6,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.Social
             },
-            // 新規追加ソース: ニュース系
+            // ニュース系
             new()
             {
                 Name = "Google News JP",
@@ -121,7 +118,6 @@ public static class DbSeeder
                 HasNativeScore = false,
                 HasServerSideFiltering = true,
                 AuthorityWeight = 0.7,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.Japanese,
                 Category = SourceCategory.News
@@ -135,7 +131,6 @@ public static class DbSeeder
                 HasNativeScore = false,
                 HasServerSideFiltering = true,
                 AuthorityWeight = 0.7,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.News
@@ -149,7 +144,6 @@ public static class DbSeeder
                 HasNativeScore = false,
                 HasServerSideFiltering = false,
                 AuthorityWeight = 0.7,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.Japanese,
                 Category = SourceCategory.News
@@ -163,12 +157,11 @@ public static class DbSeeder
                 HasNativeScore = false,
                 HasServerSideFiltering = false,
                 AuthorityWeight = 0.8,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.News
             },
-            // 新規追加ソース: 学術系
+            // 学術系
             new()
             {
                 Name = "PubMed",
@@ -178,7 +171,6 @@ public static class DbSeeder
                 HasNativeScore = false,
                 HasServerSideFiltering = true,
                 AuthorityWeight = 0.9,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.Medical
@@ -192,12 +184,11 @@ public static class DbSeeder
                 HasNativeScore = true,
                 HasServerSideFiltering = true,
                 AuthorityWeight = 0.85,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.English,
                 Category = SourceCategory.Academic
             },
-            // 新規追加ソース: エンタメ・趣味
+            // エンタメ・趣味
             new()
             {
                 Name = "Note.com",
@@ -207,14 +198,13 @@ public static class DbSeeder
                 HasNativeScore = true,
                 HasServerSideFiltering = true,
                 AuthorityWeight = 0.6,
-                IsTemplate = true,
                 IsActive = true,
                 Language = Language.Japanese,
                 Category = SourceCategory.Entertainment
             }
         };
 
-        context.Sources.AddRange(templateSources);
+        context.Sources.AddRange(sources);
         await context.SaveChangesAsync();
     }
 
@@ -229,28 +219,6 @@ public static class DbSeeder
         };
 
         context.Keywords.Add(keyword);
-        await context.SaveChangesAsync();
-
-        // Create sources from templates for initial keyword
-        var templateSources = await context.Sources.Where(s => s.IsTemplate).ToListAsync();
-        foreach (var template in templateSources)
-        {
-            var source = new Source
-            {
-                KeywordId = keyword.Id,
-                Name = template.Name,
-                Url = template.Url,
-                SearchUrlTemplate = template.SearchUrlTemplate,
-                Type = template.Type,
-                HasNativeScore = template.HasNativeScore,
-                AuthorityWeight = template.AuthorityWeight,
-                IsTemplate = false,
-                IsActive = true,
-                Language = template.Language,
-                Category = template.Category
-            };
-            context.Sources.Add(source);
-        }
         await context.SaveChangesAsync();
     }
 }

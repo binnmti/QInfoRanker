@@ -25,7 +25,6 @@ public class KeywordService : IKeywordService
     public async Task<IEnumerable<Keyword>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.Keywords
-            .Include(k => k.Sources.Where(s => !s.IsTemplate))
             .OrderByDescending(k => k.CreatedAt)
             .ToListAsync(cancellationToken);
     }
@@ -33,7 +32,6 @@ public class KeywordService : IKeywordService
     public async Task<IEnumerable<Keyword>> GetActiveAsync(CancellationToken cancellationToken = default)
     {
         return await _context.Keywords
-            .Include(k => k.Sources.Where(s => !s.IsTemplate))
             .Where(k => k.IsActive)
             .OrderByDescending(k => k.CreatedAt)
             .ToListAsync(cancellationToken);
@@ -42,7 +40,6 @@ public class KeywordService : IKeywordService
     public async Task<Keyword?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         return await _context.Keywords
-            .Include(k => k.Sources.Where(s => !s.IsTemplate))
             .FirstOrDefaultAsync(k => k.Id == id, cancellationToken);
     }
 
@@ -58,8 +55,8 @@ public class KeywordService : IKeywordService
         _context.Keywords.Add(keyword);
         await _context.SaveChangesAsync(cancellationToken);
 
-        // Get AI-recommended sources for this keyword
-        _logger.LogInformation("Getting AI recommendations for keyword '{Term}'", term);
+        // AIで英語エイリアスを生成
+        _logger.LogInformation("Getting AI analysis for keyword '{Term}'", term);
         var recommendationResult = await _recommendationService.RecommendSourcesAsync(term, cancellationToken);
 
         if (recommendationResult.KeywordAnalysis != null)
@@ -81,50 +78,7 @@ public class KeywordService : IKeywordService
             _logger.LogInformation("Auto-generated English aliases for '{Term}': {Aliases}", term, keyword.Aliases);
         }
 
-        // 既存のソースを取得して重複チェック
-        var existingSourceNames = await _context.Sources
-            .Where(s => s.KeywordId == keyword.Id && !s.IsTemplate)
-            .Select(s => s.Name)
-            .ToListAsync(cancellationToken);
-        var existingNameSet = new HashSet<string>(existingSourceNames, StringComparer.OrdinalIgnoreCase);
-
-        var addedCount = 0;
-        foreach (var template in recommendationResult.RecommendedSources)
-        {
-            // 同じ名前のソースが既に存在する場合はスキップ
-            if (existingNameSet.Contains(template.Name))
-            {
-                _logger.LogDebug("Skipping duplicate source '{Name}' for keyword '{Term}'", template.Name, term);
-                continue;
-            }
-
-            var source = new Source
-            {
-                KeywordId = keyword.Id,
-                Name = template.Name,
-                Url = template.Url,
-                SearchUrlTemplate = template.SearchUrlTemplate,
-                Type = template.Type,
-                HasNativeScore = template.HasNativeScore,
-                AuthorityWeight = template.AuthorityWeight,
-                IsTemplate = false,
-                IsActive = true,
-                Language = template.Language,
-                Category = template.Category,
-                RecommendationReason = template.RecommendationReason // AI推薦理由を保存
-            };
-            _context.Sources.Add(source);
-            existingNameSet.Add(template.Name); // 追加したソースも記録
-            addedCount++;
-        }
-
-        if (addedCount > 0)
-        {
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        _logger.LogInformation("Created keyword '{Term}' with {Added}/{Total} sources (skipped {Skipped} duplicates)",
-            term, addedCount, recommendationResult.RecommendedSources.Count, recommendationResult.RecommendedSources.Count - addedCount);
+        _logger.LogInformation("Created keyword '{Term}'", term);
 
         return keyword;
     }

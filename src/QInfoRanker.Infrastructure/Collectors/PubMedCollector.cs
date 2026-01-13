@@ -173,7 +173,6 @@ public class PubMedCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = title,
                     Url = $"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
                     Summary = abstractText?.Length > 500 ? abstractText[..500] + "..." : abstractText,

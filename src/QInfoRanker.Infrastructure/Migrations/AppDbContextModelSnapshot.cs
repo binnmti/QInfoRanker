@@ -160,21 +160,12 @@ namespace QInfoRanker.Infrastructure.Migrations
                     b.Property<bool>("IsAutoDiscovered")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("IsTemplate")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("KeywordId")
-                        .HasColumnType("INTEGER");
-
                     b.Property<int>("Language")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RecommendationReason")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("SearchUrlTemplate")
@@ -190,8 +181,6 @@ namespace QInfoRanker.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("KeywordId");
 
                     b.ToTable("Sources");
                 });
@@ -253,16 +242,6 @@ namespace QInfoRanker.Infrastructure.Migrations
                     b.Navigation("Source");
                 });
 
-            modelBuilder.Entity("QInfoRanker.Core.Entities.Source", b =>
-                {
-                    b.HasOne("QInfoRanker.Core.Entities.Keyword", "Keyword")
-                        .WithMany("Sources")
-                        .HasForeignKey("KeywordId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Keyword");
-                });
-
             modelBuilder.Entity("QInfoRanker.Core.Entities.WeeklySummary", b =>
                 {
                     b.HasOne("QInfoRanker.Core.Entities.Keyword", "Keyword")
@@ -277,8 +256,6 @@ namespace QInfoRanker.Infrastructure.Migrations
             modelBuilder.Entity("QInfoRanker.Core.Entities.Keyword", b =>
                 {
                     b.Navigation("Articles");
-
-                    b.Navigation("Sources");
                 });
 
             modelBuilder.Entity("QInfoRanker.Core.Entities.Source", b =>

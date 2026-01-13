@@ -106,7 +106,6 @@ public class ArXivCollector : BaseCollector
                 var article = new Article
                 {
                     SourceId = source.Id,
-                    KeywordId = source.KeywordId ?? 0,
                     Title = title,
                     Url = link,
                     Summary = summary?.Length > 1000

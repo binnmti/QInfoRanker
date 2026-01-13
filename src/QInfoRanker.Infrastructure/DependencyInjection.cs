@@ -26,7 +26,11 @@ public static class DependencyInjection
         else
         {
             services.AddDbContext<AppDbContext>(options =>
-                options.UseSqlServer(connectionString));
+                options.UseSqlServer(connectionString, sqlServerOptions =>
+                    sqlServerOptions.EnableRetryOnFailure(
+                        maxRetryCount: 5,
+                        maxRetryDelay: TimeSpan.FromSeconds(30),
+                        errorNumbersToAdd: null)));
         }
 
         // Configuration
@@ -36,23 +40,58 @@ public static class DependencyInjection
         services.Configure<EnsembleScoringOptions>(configuration.GetSection(EnsembleScoringOptions.SectionName));
         services.Configure<WeeklySummaryOptions>(configuration.GetSection(WeeklySummaryOptions.SectionName));
 
-        // HttpClient for collectors
-        services.AddHttpClient<HackerNewsCollector>();
-        services.AddHttpClient<ArXivCollector>();
+        // HttpClient for collectors (User-Agent required to avoid bot blocking)
+        const string userAgent = "QInfoRanker/1.0 (https://github.com/qinforanker; contact@qinforanker.app)";
+
+        services.AddHttpClient<HackerNewsCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<ArXivCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
         services.AddHttpClient<RedditCollector>(client =>
         {
-            client.DefaultRequestHeaders.Add("User-Agent", "QInfoRanker/1.0");
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
         });
-        services.AddHttpClient<HatenaCollector>();
-        services.AddHttpClient<QiitaCollector>();
-        services.AddHttpClient<ZennCollector>();
+        services.AddHttpClient<HatenaCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<QiitaCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<ZennCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
         // 新規コレクター
-        services.AddHttpClient<GoogleNewsCollector>();
-        services.AddHttpClient<PubMedCollector>();
-        services.AddHttpClient<NoteCollector>();
-        services.AddHttpClient<SemanticScholarCollector>();
-        services.AddHttpClient<BBCNewsCollector>();
-        services.AddHttpClient<YahooNewsJapanCollector>();
+        services.AddHttpClient<GoogleNewsCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<PubMedCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<NoteCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<SemanticScholarCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<BBCNewsCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
+        services.AddHttpClient<YahooNewsJapanCollector>(client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+        });
 
         // Collectors
         services.AddScoped<ICollector, HackerNewsCollector>();
