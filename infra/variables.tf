@@ -125,3 +125,16 @@ variable "allowed_external_redirect_urls" {
   type        = list(string)
   default     = []
 }
+
+# GitHub OIDC settings
+variable "github_owner" {
+  description = "GitHub repository owner (username or organization)"
+  type        = string
+  default     = "binnmti"
+}
+
+variable "github_repo" {
+  description = "GitHub repository name"
+  type        = string
+  default     = "QInfoRanker"
+}
