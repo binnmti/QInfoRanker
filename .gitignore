@@ -455,3 +455,6 @@ app-logs/
 
 # Docker publish output
 **/obj/Docker/
+
+# Claude Code temporary files
+tmpclaude-*
