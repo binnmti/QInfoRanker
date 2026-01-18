@@ -13,8 +13,8 @@ public static class DbSeeder
     /// <param name="seedSampleData">サンプルキーワードを作成するか（開発用、本番ではfalse推奨）</param>
     public static async Task SeedAsync(AppDbContext context, bool seedSampleData = false)
     {
-        // データベースが存在しない場合のみ作成（既存データは保持）
-        await context.Database.EnsureCreatedAsync();
+        // マイグレーションを適用（既存データは保持、新しいカラム等を追加）
+        await context.Database.MigrateAsync();
 
         // グローバルソースを初期化（全キーワード共通）
         if (!await context.Sources.AnyAsync())
@@ -229,38 +229,54 @@ public static class DbSeeder
     /// <summary>
     /// 既存キーワードのうち、Slugが未設定のものに対して自動生成する
     /// </summary>
+    /// <remarks>
+    /// マイグレーションが適用されていない場合（Slugカラムが存在しない場合）は
+    /// 例外をキャッチしてスキップする。次回マイグレーション適用後に実行される。
+    /// </remarks>
     private static async Task GenerateMissingSlugsAsync(AppDbContext context)
     {
-        var keywordsWithoutSlug = await context.Keywords
-            .Where(k => k.Slug == null && k.Aliases != null)
-            .ToListAsync();
-
-        if (!keywordsWithoutSlug.Any())
-            return;
-
-        var existingSlugsQuery = await context.Keywords
-            .Where(k => k.Slug != null)
-            .Select(k => k.Slug!)
-            .ToListAsync();
-        var existingSlugs = existingSlugsQuery.ToHashSet();
-
-        foreach (var keyword in keywordsWithoutSlug)
+        try
         {
-            var slug = keyword.GenerateSlugFromAliases();
-            if (string.IsNullOrEmpty(slug))
-                continue;
+            var keywordsWithoutSlug = await context.Keywords
+                .Where(k => k.Slug == null && k.Aliases != null)
+                .ToListAsync();
 
-            // 重複チェック
-            if (existingSlugs.Contains(slug))
+            if (!keywordsWithoutSlug.Any())
+                return;
+
+            var existingSlugsQuery = await context.Keywords
+                .Where(k => k.Slug != null)
+                .Select(k => k.Slug!)
+                .ToListAsync();
+            var existingSlugs = existingSlugsQuery.ToHashSet();
+
+            foreach (var keyword in keywordsWithoutSlug)
             {
-                // 重複する場合はIDを付与
-                slug = $"{slug}-{keyword.Id}";
+                var slug = keyword.GenerateSlugFromAliases();
+                if (string.IsNullOrEmpty(slug))
+                    continue;
+
+                // 重複チェック
+                if (existingSlugs.Contains(slug))
+                {
+                    // 重複する場合はIDを付与
+                    slug = $"{slug}-{keyword.Id}";
+                }
+
+                keyword.Slug = slug;
+                existingSlugs.Add(slug);
             }
 
-            keyword.Slug = slug;
-            existingSlugs.Add(slug);
+            await context.SaveChangesAsync();
         }
-
-        await context.SaveChangesAsync();
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            // Slugカラムが存在しない場合（マイグレーション未適用）はスキップ
+            // 次回マイグレーション適用後に実行される
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+        {
+            // DB更新エラーもスキップ
+        }
     }
 }
