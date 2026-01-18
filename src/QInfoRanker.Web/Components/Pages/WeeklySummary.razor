@@ -27,9 +27,9 @@
         padding-right: 0.5rem;
     }
     .load-more-btn {
-        margin-top: 0.5rem;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
         text-align: center;
-        flex-shrink: 0;
     }
     .category-header {
         border-bottom: 3px solid;
@@ -354,20 +354,20 @@ else
                             </div>
                         }
                     }
-                </div>
 
-                @if (newsArticles.Count < newsTotalCount)
-                {
-                    <div class="load-more-btn">
-                        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreNews" disabled="@isLoadingMoreNews">
-                            @if (isLoadingMoreNews)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                            }
-                            もっと見る (@(newsTotalCount - newsArticles.Count) 件)
-                        </button>
-                    </div>
-                }
+                    @if (newsArticles.Count < newsTotalCount)
+                    {
+                        <div class="load-more-btn">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreNews" disabled="@isLoadingMoreNews">
+                                @if (isLoadingMoreNews)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                }
+                                もっと見る (@(newsTotalCount - newsArticles.Count) 件)
+                            </button>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
 
@@ -422,20 +422,20 @@ else
                             </div>
                         }
                     }
-                </div>
 
-                @if (techArticles.Count < techTotalCount)
-                {
-                    <div class="load-more-btn">
-                        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreTech" disabled="@isLoadingMoreTech">
-                            @if (isLoadingMoreTech)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                            }
-                            もっと見る (@(techTotalCount - techArticles.Count) 件)
-                        </button>
-                    </div>
-                }
+                    @if (techArticles.Count < techTotalCount)
+                    {
+                        <div class="load-more-btn">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreTech" disabled="@isLoadingMoreTech">
+                                @if (isLoadingMoreTech)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                }
+                                もっと見る (@(techTotalCount - techArticles.Count) 件)
+                            </button>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
 
@@ -490,20 +490,20 @@ else
                             </div>
                         }
                     }
-                </div>
 
-                @if (academicArticles.Count < academicTotalCount)
-                {
-                    <div class="load-more-btn">
-                        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreAcademic" disabled="@isLoadingMoreAcademic">
-                            @if (isLoadingMoreAcademic)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                            }
-                            もっと見る (@(academicTotalCount - academicArticles.Count) 件)
-                        </button>
-                    </div>
-                }
+                    @if (academicArticles.Count < academicTotalCount)
+                    {
+                        <div class="load-more-btn">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreAcademic" disabled="@isLoadingMoreAcademic">
+                                @if (isLoadingMoreAcademic)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                }
+                                もっと見る (@(academicTotalCount - academicArticles.Count) 件)
+                            </button>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
     </div>

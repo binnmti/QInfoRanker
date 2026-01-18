@@ -70,9 +70,32 @@ CLAUDE.mdの開発原則に従ってください。
 - 学んだこと: 1-2点（あれば）
 ```
 
-### Step 3: コミット
+### Step 3: レビュー（/local-review）
 
-サブエージェント完了後、即座にコミット：
+サブエージェント完了後、コミット前にレビューを実施：
+
+1. `git diff` で変更内容を確認
+2. CodeRabbitレビュー実行（レート制限時はスキップ）
+3. GitHub Copilotレビュー実行
+4. Claude Codeセルフレビュー実行
+5. 「重大」「推奨」の指摘があれば修正
+6. 修正後、再レビュー（最大3回）
+
+```bash
+# CodeRabbit
+wsl bash -c "~/.local/bin/cr review --plain -t uncommitted --cwd /mnt/e/Code/Private/QInfoRanker"
+
+# GitHub Copilot
+copilot --model gpt-5.1-codex-max -p "以下のgit diffをコードレビューしてください。バグ、セキュリティリスク、設計上の問題点を「重大」「警告」「軽微」に分類して指摘してください: $(git diff -- . ':(exclude)*.Designer.cs')"
+```
+
+**終了条件:**
+- 「重大」「推奨」の指摘が0件
+- または3回ループした
+
+### Step 4: コミット
+
+レビュー完了後、コミット：
 
 ```bash
 git add {変更ファイル}
@@ -81,7 +104,7 @@ git commit -m "<type>: <description>
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
 
-### Step 4: 結果の記録
+### Step 5: 結果の記録
 
 タスクファイルの末尾に `## 実行結果` を追記：
 
@@ -97,12 +120,12 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 - **問題点**: なし
 ```
 
-### Step 5: 次のタスクへ
+### Step 6: 次のタスクへ
 
 - 成功: **確認なしで** Step 2 に戻り、次の未完了タスクを実行
 - 失敗/ブロック: ユーザーに報告して指示を待つ
 
-### Step 6: プラン完了
+### Step 7: プラン完了
 
 全タスク完了後：
 
