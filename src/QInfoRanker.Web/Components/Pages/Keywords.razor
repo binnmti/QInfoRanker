@@ -1,4 +1,3 @@
-@page "/"
 @page "/keywords"
 @attribute [Authorize]
 @rendermode InteractiveServer
@@ -49,10 +48,15 @@ else
 {
     @* デバッグモードチェックボックス（キーワードがある場合のみ表示） *@
     <div class="mb-3">
-        <div class="form-check">
+        <div class="form-check d-flex align-items-center">
             <input type="checkbox" class="form-check-input" id="debugMode" @bind="debugMode" />
-            <label class="form-check-label" for="debugMode">
-                デバッグモード（各ソース3件のみ収集 - UI確認用）
+            <label class="form-check-label me-2" for="debugMode">
+                デバッグモード（各ソース
+            </label>
+            <input type="number" class="form-control form-control-sm" style="width: 70px;"
+                   @bind="debugArticleLimit" min="1" max="100" disabled="@(!debugMode)" />
+            <label class="form-check-label ms-1" for="debugMode">
+                件のみ収集 - UI確認用）
             </label>
         </div>
     </div>
@@ -148,6 +152,7 @@ else
     private int? editingKeywordId;
     private string editingAliases = string.Empty;
     private bool debugMode = false;
+    private int debugArticleLimit = 3;
 
     protected override async Task OnInitializedAsync()
     {
@@ -242,7 +247,7 @@ else
             KeywordId = keywordId,
             KeywordTerm = term,
             DebugMode = debugMode,
-            DebugArticleLimit = 3
+            DebugArticleLimit = debugArticleLimit
         };
 
         await CollectionQueue.EnqueueAsync(job);
@@ -267,7 +272,7 @@ else
                 KeywordId = keyword.Id,
                 KeywordTerm = keyword.Term,
                 DebugMode = debugMode,
-                DebugArticleLimit = 3
+                DebugArticleLimit = debugArticleLimit
             };
             await CollectionQueue.EnqueueAsync(job);
         }
