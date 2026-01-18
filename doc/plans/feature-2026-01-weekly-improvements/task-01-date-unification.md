@@ -1,5 +1,9 @@
 # タスク01: 日付表示をPublishedAtに統一
 
+## 概要
+
+技術記事・研究カテゴリで `CollectedAt`（収集日）を表示していた箇所を、ニュースカテゴリと同様に `PublishedAt`（元記事の公開日）に統一。既存のニュースカラムの実装パターンを踏襲し、`PublishedAt` が null の場合は空欄表示とすることで、不正確な情報表示を回避した。
+
 ## 目的
 
 「今週のおすすめ」画面で、全カテゴリの日付表示を記事の元の公開日（PublishedAt）に統一する。
@@ -31,16 +35,16 @@
 
 ## 実装内容
 
-- [ ] 技術記事カラム（300行目付近）の `CollectedAt` を `PublishedAt` に変更
-- [ ] 研究カラム（350行目付近）の `CollectedAt` を `PublishedAt` に変更
-- [ ] PublishedAt が null の場合の表示を検討（空欄 or CollectedAt をフォールバック）
+- [x] 技術記事カラム（300行目付近）の `CollectedAt` を `PublishedAt` に変更
+- [x] 研究カラム（350行目付近）の `CollectedAt` を `PublishedAt` に変更
+- [x] PublishedAt が null の場合の表示を検討（空欄 or CollectedAt をフォールバック）
 
 ## テスト
 
-- [ ] 技術記事の日付が PublishedAt で表示されることを確認
-- [ ] 研究の日付が PublishedAt で表示されることを確認
-- [ ] PublishedAt が null の記事がある場合の表示を確認
-- [ ] 既存のビルドが通ることを確認
+- [x] 技術記事の日付が PublishedAt で表示されることを確認
+- [x] 研究の日付が PublishedAt で表示されることを確認
+- [x] PublishedAt が null の記事がある場合の表示を確認
+- [x] 既存のビルドが通ることを確認
 
 ## 完了条件
 
