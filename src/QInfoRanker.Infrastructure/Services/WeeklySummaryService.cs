@@ -129,23 +129,7 @@ public class WeeklySummaryService : IWeeklySummaryService
 
         var (title, content) = await GenerateSummaryContentAsync(keyword.Term, categoryArticles, cancellationToken);
 
-        var existing = await _context.WeeklySummaries
-            .FirstOrDefaultAsync(w => w.KeywordId == keywordId && w.WeekStart == weekStart, cancellationToken);
-
-        if (existing != null)
-        {
-            existing.Title = title;
-            existing.Content = content;
-            existing.ArticleCount = totalCount;
-            existing.GeneratedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Updated weekly summary for keyword '{Keyword}' with {Count} articles",
-                keyword.Term, totalCount);
-
-            return existing;
-        }
-
+        // 履歴として保持するため、常に新しい要約を作成
         var summary = new WeeklySummary
         {
             KeywordId = keywordId,
@@ -448,6 +432,43 @@ public class WeeklySummaryService : IWeeklySummaryService
             CanGenerateSummary: canGenerate,
             BlockingReason: blockingReason
         );
+    }
+
+    public async Task<IReadOnlyList<WeeklySummary>> GetHistoryAsync(int keywordId, int take = 30, CancellationToken cancellationToken = default)
+    {
+        return await _context.WeeklySummaries
+            .Include(w => w.Keyword)
+            .Where(w => w.KeywordId == keywordId)
+            .OrderByDescending(w => w.GeneratedAt)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<WeeklySummary?> GetPreviousSummaryAsync(int keywordId, DateTime currentGeneratedAt, CancellationToken cancellationToken = default)
+    {
+        return await _context.WeeklySummaries
+            .Include(w => w.Keyword)
+            .Where(w => w.KeywordId == keywordId && w.GeneratedAt < currentGeneratedAt)
+            .OrderByDescending(w => w.GeneratedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<WeeklySummary?> GetNextSummaryAsync(int keywordId, DateTime currentGeneratedAt, CancellationToken cancellationToken = default)
+    {
+        return await _context.WeeklySummaries
+            .Include(w => w.Keyword)
+            .Where(w => w.KeywordId == keywordId && w.GeneratedAt > currentGeneratedAt)
+            .OrderBy(w => w.GeneratedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<WeeklySummary?> GetLatestSummaryAsync(int keywordId, CancellationToken cancellationToken = default)
+    {
+        return await _context.WeeklySummaries
+            .Include(w => w.Keyword)
+            .Where(w => w.KeywordId == keywordId)
+            .OrderByDescending(w => w.GeneratedAt)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()

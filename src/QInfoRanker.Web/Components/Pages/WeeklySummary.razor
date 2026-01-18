@@ -103,6 +103,27 @@
         color: #6c757d;
     }
 
+    .history-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .history-nav .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    .history-badge {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.25rem;
+        background-color: #e9ecef;
+        color: #495057;
+    }
+    .history-badge.latest {
+        background-color: #d1e7dd;
+        color: #0f5132;
+    }
+
     </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -140,22 +161,51 @@
             <div class="card-body py-3">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <h5 class="card-title mb-0">@currentSummary.Title</h5>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="RegenerateSummary" disabled="@isGenerating" title="サマリーを再生成">
-                        @if (isGenerating)
-                        {
-                            <span class="spinner-border spinner-border-sm" role="status"></span>
-                        }
-                        else
-                        {
-                            <span>🔄</span>
-                        }
-                    </button>
+                    <div class="d-flex align-items-center gap-2">
+                        @* 履歴ナビゲーション *@
+                        <div class="history-nav">
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    @onclick="GoToPreviousSummary"
+                                    disabled="@(!hasPreviousSummary || isNavigating)"
+                                    title="前の要約（古い方向）">
+                                ←
+                            </button>
+                            @if (isLatestSummary)
+                            {
+                                <span class="history-badge latest">最新</span>
+                            }
+                            else
+                            {
+                                <span class="history-badge">履歴</span>
+                            }
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    @onclick="GoToNextSummary"
+                                    disabled="@(!hasNextSummary || isNavigating)"
+                                    title="次の要約（新しい方向）">
+                                →
+                            </button>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="RegenerateSummary" disabled="@isGenerating" title="サマリーを再生成">
+                            @if (isGenerating)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                            }
+                            else
+                            {
+                                <span>+</span>
+                            }
+                        </button>
+                    </div>
                 </div>
                 <div class="summary-content">
                     @((MarkupString)RenderMarkdown(currentSummary.Content))
                 </div>
-                <div class="mt-2 small text-muted">
-                    @currentSummary.ArticleCount 件の記事を参照 | 生成: @currentSummary.GeneratedAt.ToLocalTime().ToString("M/d HH:mm")
+                <div class="mt-2 small text-muted d-flex justify-content-between align-items-center">
+                    <span>@currentSummary.ArticleCount 件の記事を参照</span>
+                    <span>
+                        @currentSummary.WeekStart.ToString("M/d")〜@currentSummary.WeekEnd.ToString("M/d") |
+                        生成: @currentSummary.GeneratedAt.ToLocalTime().ToString("M/d HH:mm")
+                    </span>
                 </div>
                 @if (!string.IsNullOrEmpty(generateError))
                 {
@@ -420,6 +470,12 @@ else
     private bool isGenerating = false;
     private string? generateError;
 
+    // 履歴ナビゲーション関連
+    private bool hasPreviousSummary = false;
+    private bool hasNextSummary = false;
+    private bool isLatestSummary = true;
+    private bool isNavigating = false;
+
     private static readonly MarkdownPipeline _markdownPipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
         .UseAutoLinks()
@@ -530,6 +586,7 @@ else
         {
             currentSummary = null;
             diagnostics = null;
+            ResetHistoryNavigation();
             return;
         }
 
@@ -538,21 +595,54 @@ else
 
         try
         {
-            currentSummary = await SummaryService.GetCurrentWeekSummaryAsync(selectedKeywordId.Value);
+            // 最新の要約を取得
+            currentSummary = await SummaryService.GetLatestSummaryAsync(selectedKeywordId.Value);
+
             // サマリーがない場合は診断情報を取得
             if (currentSummary == null)
             {
                 diagnostics = await SummaryService.GetDiagnosticsAsync(selectedKeywordId.Value);
+                ResetHistoryNavigation();
             }
             else
             {
                 diagnostics = null;
+                await UpdateHistoryNavigationState();
             }
         }
         finally
         {
             isLoadingSummary = false;
         }
+    }
+
+    private void ResetHistoryNavigation()
+    {
+        hasPreviousSummary = false;
+        hasNextSummary = false;
+        isLatestSummary = true;
+    }
+
+    private async Task UpdateHistoryNavigationState()
+    {
+        if (!selectedKeywordId.HasValue || currentSummary == null)
+        {
+            ResetHistoryNavigation();
+            return;
+        }
+
+        // 前後の要約があるかチェック
+        var previousSummary = await SummaryService.GetPreviousSummaryAsync(
+            selectedKeywordId.Value, currentSummary.GeneratedAt);
+        var nextSummary = await SummaryService.GetNextSummaryAsync(
+            selectedKeywordId.Value, currentSummary.GeneratedAt);
+
+        hasPreviousSummary = previousSummary != null;
+        hasNextSummary = nextSummary != null;
+
+        // 最新かどうかを判定
+        var latestSummary = await SummaryService.GetLatestSummaryAsync(selectedKeywordId.Value);
+        isLatestSummary = latestSummary != null && latestSummary.Id == currentSummary.Id;
     }
 
     private async Task GenerateSummary()
@@ -591,8 +681,60 @@ else
 
     private async Task RegenerateSummary()
     {
-        // 既存サマリーがあっても再生成
+        // 既存サマリーがあっても再生成（新しい要約として追加）
         await GenerateSummary();
+        // 生成後、履歴ナビゲーション状態を更新
+        await UpdateHistoryNavigationState();
+    }
+
+    private async Task GoToPreviousSummary()
+    {
+        if (!selectedKeywordId.HasValue || currentSummary == null) return;
+
+        isNavigating = true;
+        StateHasChanged();
+
+        try
+        {
+            var previousSummary = await SummaryService.GetPreviousSummaryAsync(
+                selectedKeywordId.Value, currentSummary.GeneratedAt);
+
+            if (previousSummary != null)
+            {
+                currentSummary = previousSummary;
+                await UpdateHistoryNavigationState();
+            }
+        }
+        finally
+        {
+            isNavigating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GoToNextSummary()
+    {
+        if (!selectedKeywordId.HasValue || currentSummary == null) return;
+
+        isNavigating = true;
+        StateHasChanged();
+
+        try
+        {
+            var nextSummary = await SummaryService.GetNextSummaryAsync(
+                selectedKeywordId.Value, currentSummary.GeneratedAt);
+
+            if (nextSummary != null)
+            {
+                currentSummary = nextSummary;
+                await UpdateHistoryNavigationState();
+            }
+        }
+        finally
+        {
+            isNavigating = false;
+            StateHasChanged();
+        }
     }
 
     private static string RenderMarkdown(string markdown)

@@ -17,8 +17,12 @@ public class WeeklySummaryConfiguration : IEntityTypeConfiguration<WeeklySummary
         builder.Property(w => w.Content)
             .IsRequired();
 
-        builder.HasIndex(w => new { w.KeywordId, w.WeekStart })
-            .IsUnique();
+        // 同一週に複数の要約を保持できるようにするため、ユニーク制約は設定しない
+        // 代わりにKeywordIdとWeekStartで効率的に検索できるようインデックスを作成
+        builder.HasIndex(w => new { w.KeywordId, w.WeekStart });
+
+        // 生成日時による検索用インデックス
+        builder.HasIndex(w => new { w.KeywordId, w.GeneratedAt });
 
         builder.HasOne(w => w.Keyword)
             .WithMany()
