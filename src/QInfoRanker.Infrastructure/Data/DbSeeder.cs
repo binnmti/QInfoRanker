@@ -27,6 +27,9 @@ public static class DbSeeder
         {
             await SeedInitialKeywordAsync(context);
         }
+
+        // 既存キーワードのSlugを自動生成（未設定のもののみ）
+        await GenerateMissingSlugsAsync(context);
     }
 
     /// <summary>
@@ -214,11 +217,50 @@ public static class DbSeeder
         {
             Term = "量子コンピュータ",
             Aliases = "quantum computer, quantum computing",
+            Slug = "quantum-computer",
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
 
         context.Keywords.Add(keyword);
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// 既存キーワードのうち、Slugが未設定のものに対して自動生成する
+    /// </summary>
+    private static async Task GenerateMissingSlugsAsync(AppDbContext context)
+    {
+        var keywordsWithoutSlug = await context.Keywords
+            .Where(k => k.Slug == null && k.Aliases != null)
+            .ToListAsync();
+
+        if (!keywordsWithoutSlug.Any())
+            return;
+
+        var existingSlugsQuery = await context.Keywords
+            .Where(k => k.Slug != null)
+            .Select(k => k.Slug!)
+            .ToListAsync();
+        var existingSlugs = existingSlugsQuery.ToHashSet();
+
+        foreach (var keyword in keywordsWithoutSlug)
+        {
+            var slug = keyword.GenerateSlugFromAliases();
+            if (string.IsNullOrEmpty(slug))
+                continue;
+
+            // 重複チェック
+            if (existingSlugs.Contains(slug))
+            {
+                // 重複する場合はIDを付与
+                slug = $"{slug}-{keyword.Id}";
+            }
+
+            keyword.Slug = slug;
+            existingSlugs.Add(slug);
+        }
+
         await context.SaveChangesAsync();
     }
 }

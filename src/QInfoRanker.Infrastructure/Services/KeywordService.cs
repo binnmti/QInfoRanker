@@ -43,6 +43,22 @@ public class KeywordService : IKeywordService
             .FirstOrDefaultAsync(k => k.Id == id, cancellationToken);
     }
 
+    public async Task<Keyword?> GetBySlugOrIdAsync(string slugOrId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(slugOrId))
+            return null;
+
+        // First, try to parse as ID
+        if (int.TryParse(slugOrId, out var id))
+        {
+            return await GetByIdAsync(id, cancellationToken);
+        }
+
+        // Otherwise, search by slug
+        return await _context.Keywords
+            .FirstOrDefaultAsync(k => k.Slug == slugOrId, cancellationToken);
+    }
+
     public async Task<Keyword> CreateAsync(string term, CancellationToken cancellationToken = default)
     {
         var keyword = new Keyword
@@ -74,6 +90,20 @@ public class KeywordService : IKeywordService
         if (!string.IsNullOrWhiteSpace(recommendationResult.EnglishAliases))
         {
             keyword.Aliases = recommendationResult.EnglishAliases;
+
+            // エイリアスからSlugを自動生成
+            var slug = keyword.GenerateSlugFromAliases();
+            if (!string.IsNullOrEmpty(slug))
+            {
+                // Slugの重複チェック
+                var existingSlug = await _context.Keywords.AnyAsync(k => k.Slug == slug, cancellationToken);
+                if (!existingSlug)
+                {
+                    keyword.Slug = slug;
+                    _logger.LogInformation("Auto-generated slug for '{Term}': {Slug}", term, slug);
+                }
+            }
+
             await _context.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Auto-generated English aliases for '{Term}': {Aliases}", term, keyword.Aliases);
         }
@@ -118,5 +148,35 @@ public class KeywordService : IKeywordService
             keyword.Aliases = string.IsNullOrWhiteSpace(aliases) ? null : aliases.Trim();
             await _context.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    public async Task<string?> GenerateAndSetSlugAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var keyword = await _context.Keywords.FindAsync([id], cancellationToken);
+        if (keyword == null)
+            return null;
+
+        // 既にSlugがある場合はそれを返す
+        if (!string.IsNullOrEmpty(keyword.Slug))
+            return keyword.Slug;
+
+        // エイリアスからSlugを生成
+        var slug = keyword.GenerateSlugFromAliases();
+        if (string.IsNullOrEmpty(slug))
+            return null;
+
+        // 重複チェック
+        var existingSlug = await _context.Keywords.AnyAsync(k => k.Slug == slug && k.Id != id, cancellationToken);
+        if (existingSlug)
+        {
+            // 重複する場合はIDを付与
+            slug = $"{slug}-{id}";
+        }
+
+        keyword.Slug = slug;
+        await _context.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Generated slug for keyword '{Term}': {Slug}", keyword.Term, slug);
+
+        return slug;
     }
 }

@@ -124,7 +124,7 @@ else
                         <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteKeyword(keyword.Id)">
                             削除
                         </button>
-                        <a href="/weekly/@Uri.EscapeDataString(keyword.Term)" class="btn btn-sm btn-outline-info" title="今週のおすすめを見る">
+                        <a href="/weekly/@keyword.GetUrlIdentifier()" class="btn btn-sm btn-outline-info" title="今週のおすすめを見る">
                             おすすめ
                         </a>
                     </td>

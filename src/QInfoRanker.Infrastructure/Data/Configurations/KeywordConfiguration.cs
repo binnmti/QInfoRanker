@@ -14,8 +14,16 @@ public class KeywordConfiguration : IEntityTypeConfiguration<Keyword>
             .IsRequired()
             .HasMaxLength(200);
 
+        builder.Property(k => k.Slug)
+            .HasMaxLength(200);
+
         builder.HasIndex(k => k.Term)
             .IsUnique();
+
+        // Slug should be unique when not null (filter index)
+        builder.HasIndex(k => k.Slug)
+            .IsUnique()
+            .HasFilter("[Slug] IS NOT NULL");
 
         builder.HasMany(k => k.Articles)
             .WithOne(a => a.Keyword)

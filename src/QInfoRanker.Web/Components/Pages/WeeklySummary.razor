@@ -148,7 +148,7 @@
             <a href="/weekly" class="btn btn-sm @(selectedKeywordId == null ? "btn-primary" : "btn-outline-primary")">すべて</a>
             @foreach (var keyword in keywords)
             {
-                <a href="/weekly/@Uri.EscapeDataString(keyword.Term)"
+                <a href="/weekly/@keyword.GetUrlIdentifier()"
                    class="btn btn-sm @(selectedKeywordId == keyword.Id ? "btn-primary" : "btn-outline-primary")">
                     @keyword.Term
                 </a>
@@ -203,16 +203,20 @@
                                 →
                             </button>
                         </div>
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="RegenerateSummary" disabled="@isGenerating" title="サマリーを再生成">
-                            @if (isGenerating)
-                            {
-                                <span class="spinner-border spinner-border-sm" role="status"></span>
-                            }
-                            else
-                            {
-                                <span>+</span>
-                            }
-                        </button>
+                        <AuthorizeView>
+                            <Authorized>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="RegenerateSummary" disabled="@isGenerating" title="サマリーを再生成">
+                                    @if (isGenerating)
+                                    {
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    }
+                                    else
+                                    {
+                                        <span>+</span>
+                                    }
+                                </button>
+                            </Authorized>
+                        </AuthorizeView>
                     </div>
                 </div>
                 <div class="summary-content">
@@ -363,7 +367,11 @@ else
                                 {
                                     <span class="spinner-border spinner-border-sm me-1" role="status"></span>
                                 }
-                                もっと見る (@(newsTotalCount - newsArticles.Count) 件)
+                                @{
+                                    var newsRemaining = newsTotalCount - newsArticles.Count;
+                                    var newsLoadCount = Math.Min(newsRemaining, PageSize);
+                                }
+                                もっと見る（次の @newsLoadCount 件）
                             </button>
                         </div>
                     }
@@ -431,7 +439,11 @@ else
                                 {
                                     <span class="spinner-border spinner-border-sm me-1" role="status"></span>
                                 }
-                                もっと見る (@(techTotalCount - techArticles.Count) 件)
+                                @{
+                                    var techRemaining = techTotalCount - techArticles.Count;
+                                    var techLoadCount = Math.Min(techRemaining, PageSize);
+                                }
+                                もっと見る（次の @techLoadCount 件）
                             </button>
                         </div>
                     }
@@ -499,7 +511,11 @@ else
                                 {
                                     <span class="spinner-border spinner-border-sm me-1" role="status"></span>
                                 }
-                                もっと見る (@(academicTotalCount - academicArticles.Count) 件)
+                                @{
+                                    var academicRemaining = academicTotalCount - academicArticles.Count;
+                                    var academicLoadCount = Math.Min(academicRemaining, PageSize);
+                                }
+                                もっと見る（次の @academicLoadCount 件）
                             </button>
                         </div>
                     }
@@ -588,10 +604,25 @@ else
             return;
         }
 
-        // URLデコードしてキーワードを検索
-        var decodedKeyword = Uri.UnescapeDataString(KeywordParam);
+        // URLデコード
+        var decodedParam = Uri.UnescapeDataString(KeywordParam);
+
+        // まずSlugで検索
         var keyword = keywords.FirstOrDefault(k =>
-            k.Term.Equals(decodedKeyword, StringComparison.OrdinalIgnoreCase));
+            !string.IsNullOrEmpty(k.Slug) && k.Slug.Equals(decodedParam, StringComparison.OrdinalIgnoreCase));
+
+        // Slugで見つからなければIDで検索
+        if (keyword == null && int.TryParse(decodedParam, out var id))
+        {
+            keyword = keywords.FirstOrDefault(k => k.Id == id);
+        }
+
+        // それでも見つからなければTerm名で検索（後方互換性）
+        if (keyword == null)
+        {
+            keyword = keywords.FirstOrDefault(k =>
+                k.Term.Equals(decodedParam, StringComparison.OrdinalIgnoreCase));
+        }
 
         selectedKeywordId = keyword?.Id;
     }
