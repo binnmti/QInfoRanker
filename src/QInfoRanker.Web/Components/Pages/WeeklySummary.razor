@@ -1,5 +1,5 @@
-@page "/top10"
-@page "/weekly-summary"
+@page "/weekly"
+@page "/weekly/{KeywordParam?}"
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @using QInfoRanker.Core.Entities
@@ -9,6 +9,7 @@
 @inject IArticleService ArticleService
 @inject IKeywordService KeywordService
 @inject IWeeklySummaryService SummaryService
+@inject NavigationManager NavigationManager
 
 <PageTitle>今週のおすすめ - QInfoRanker</PageTitle>
 
@@ -142,13 +143,16 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="mb-0">今週のおすすめ</h1>
     <div class="d-flex align-items-center gap-2">
-        <select class="form-select form-select-sm" style="width: auto;" @bind="selectedKeywordId" @bind:after="LoadAll">
-            <option value="">すべてのキーワード</option>
+        <div class="btn-group" role="group">
+            <a href="/weekly" class="btn btn-sm @(selectedKeywordId == null ? "btn-primary" : "btn-outline-primary")">すべて</a>
             @foreach (var keyword in keywords)
             {
-                <option value="@keyword.Id">@keyword.Term</option>
+                <a href="/weekly/@Uri.EscapeDataString(keyword.Term)"
+                   class="btn btn-sm @(selectedKeywordId == keyword.Id ? "btn-primary" : "btn-outline-primary")">
+                    @keyword.Term
+                </a>
             }
-        </select>
+        </div>
     </div>
 </div>
 
@@ -505,6 +509,9 @@ else
 }
 
 @code {
+    [Parameter]
+    public string? KeywordParam { get; set; }
+
     private List<Keyword> keywords = new();
     private int? selectedKeywordId;
     private bool isLoading = true;
@@ -556,7 +563,36 @@ else
     {
         CalculateWeekRange();
         keywords = (await KeywordService.GetActiveAsync()).ToList();
+        ResolveKeywordFromUrl();
         await LoadAll();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // URLパラメータが変更されたときに再読み込み
+        var previousKeywordId = selectedKeywordId;
+        ResolveKeywordFromUrl();
+
+        if (previousKeywordId != selectedKeywordId)
+        {
+            await LoadAll();
+        }
+    }
+
+    private void ResolveKeywordFromUrl()
+    {
+        if (string.IsNullOrEmpty(KeywordParam))
+        {
+            selectedKeywordId = null;
+            return;
+        }
+
+        // URLデコードしてキーワードを検索
+        var decodedKeyword = Uri.UnescapeDataString(KeywordParam);
+        var keyword = keywords.FirstOrDefault(k =>
+            k.Term.Equals(decodedKeyword, StringComparison.OrdinalIgnoreCase));
+
+        selectedKeywordId = keyword?.Id;
     }
 
     private void CalculateWeekRange()
