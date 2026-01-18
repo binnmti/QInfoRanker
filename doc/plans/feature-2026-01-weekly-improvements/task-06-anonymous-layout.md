@@ -55,3 +55,20 @@
 
 - `src/QInfoRanker.Web/Components/Layout/MainLayout.razor` - 現在のレイアウト
 - Blazor `AuthorizeView` コンポーネント
+
+---
+
+## 実行結果
+
+- **実行日時**: 2026-01-18
+- **ステータス**: completed
+- **変更ファイル**:
+  - src/QInfoRanker.Web/Components/Layout/MainLayout.razor
+  - src/QInfoRanker.Web/Components/Layout/NavMenu.razor
+  - src/QInfoRanker.Web/Components/Pages/WeeklySummary.razor
+  - src/QInfoRanker.Web/Components/Pages/Keywords.razor
+- **コミット**: f08b7e7
+- **学んだこと**:
+  - BlazorのAuthorizeViewで<Authorized>と<NotAuthorized>を使い認証状態に応じたUI出し分けが簡単
+  - 複数の@pageディレクティブで同じコンポーネントに複数URLからアクセス可能
+- **問題点**: なし

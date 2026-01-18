@@ -34,7 +34,7 @@ task-01 → task-02 → task-03 → task-04 → task-05 → task-06
 | 03 | task-03-summary-history.md | 要約の履歴閲覧機能 | 02 | completed |
 | 04 | task-04-incremental-loading.md | 記事のインクリメンタルローディング | なし | completed |
 | 05 | task-05-page-structure.md | ページ名変更とキーワード別URL化 | なし | completed |
-| 06 | task-06-anonymous-layout.md | 未認証ユーザー向けレイアウト変更 | 05 | pending |
+| 06 | task-06-anonymous-layout.md | 未認証ユーザー向けレイアウト変更 | 05 | completed |
 
 ## コミット規約
 
@@ -53,6 +53,6 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 - [x] task-03 完了（要約履歴）
 - [x] task-04 完了（インクリメンタルローディング）
 - [x] task-05 完了（ページ構造変更）
-- [ ] task-06 完了（未認証レイアウト）
+- [x] task-06 完了（未認証レイアウト）
 - [ ] 全テスト通過
 - [ ] mainへマージ
