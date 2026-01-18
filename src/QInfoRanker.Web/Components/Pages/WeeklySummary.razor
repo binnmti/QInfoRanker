@@ -297,7 +297,10 @@ else
                                     </a>
                                     <div class="article-meta d-flex gap-2 mt-1">
                                         <span>@article.Source.Name</span>
-                                        <span>@article.CollectedAt.ToString("M/d")</span>
+                                        @if (article.PublishedAt.HasValue)
+                                        {
+                                            <span>@article.PublishedAt.Value.ToString("M/d")</span>
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -347,7 +350,10 @@ else
                                     </a>
                                     <div class="article-meta d-flex gap-2 mt-1">
                                         <span>@article.Source.Name</span>
-                                        <span>@article.CollectedAt.ToString("M/d")</span>
+                                        @if (article.PublishedAt.HasValue)
+                                        {
+                                            <span>@article.PublishedAt.Value.ToString("M/d")</span>
+                                        }
                                     </div>
                                 </div>
                             </div>
