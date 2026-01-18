@@ -112,8 +112,34 @@ public class ArticleService : IArticleService
         SourceCategory category,
         int recommendThreshold,
         int? keywordId = null,
+        int skip = 0,
         int take = 10,
         CancellationToken cancellationToken = default)
+    {
+        var query = BuildWeeklyRecommendedQuery(category, recommendThreshold, keywordId);
+
+        return await query
+            .OrderByDescending(a => a.RecommendScore)
+            .ThenByDescending(a => a.FinalScore)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> GetWeeklyRecommendedCountByCategoryAsync(
+        SourceCategory category,
+        int recommendThreshold,
+        int? keywordId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = BuildWeeklyRecommendedQuery(category, recommendThreshold, keywordId);
+        return await query.CountAsync(cancellationToken);
+    }
+
+    private IQueryable<Article> BuildWeeklyRecommendedQuery(
+        SourceCategory category,
+        int recommendThreshold,
+        int? keywordId)
     {
         var (weekStart, weekEnd) = GetCurrentWeekRange();
 
@@ -143,11 +169,7 @@ public class ArticleService : IArticleService
             query = query.Where(a => a.CollectedAt >= weekStart && a.CollectedAt <= weekEnd);
         }
 
-        return await query
-            .OrderByDescending(a => a.RecommendScore)
-            .ThenByDescending(a => a.FinalScore)
-            .Take(take)
-            .ToListAsync(cancellationToken);
+        return query;
     }
 
     private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()

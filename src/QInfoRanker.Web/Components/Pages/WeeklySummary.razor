@@ -15,6 +15,19 @@
 <style>
     .category-column {
         min-height: 400px;
+        max-height: 600px;
+        display: flex;
+        flex-direction: column;
+    }
+    .category-articles {
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 0.5rem;
+    }
+    .load-more-btn {
+        margin-top: 0.5rem;
+        text-align: center;
+        flex-shrink: 0;
     }
     .category-header {
         border-bottom: 3px solid;
@@ -291,7 +304,7 @@ else
                 <div class="category-header d-flex align-items-center gap-2">
                     <span style="font-size: 1.25rem;">📰</span>
                     <h5 class="mb-0">ニュース</h5>
-                    <small class="text-muted ms-auto">@newsArticles.Count()件</small>
+                    <small class="text-muted ms-auto">@newsArticles.Count / @newsTotalCount 件</small>
                 </div>
 
                 @if (newsTrendTags.Any())
@@ -304,36 +317,51 @@ else
                     </div>
                 }
 
-                @if (!newsArticles.Any())
-                {
-                    <div class="empty-state">
-                        <p class="mb-0">おすすめ記事はありません</p>
-                    </div>
-                }
-                else
-                {
-                    foreach (var article in newsArticles)
+                <div class="category-articles">
+                    @if (!newsArticles.Any())
                     {
-                        <div class="article-item" @key="article.Id">
-                            <div class="d-flex gap-2">
-                                <span style="font-size: 1rem;">🔥</span>
-                                <div class="flex-grow-1">
-                                    <a href="@article.Url" target="_blank"
-                                       class="article-title text-decoration-none d-block"
-                                       title="@GetTooltipText(article)">
-                                        @article.Title
-                                    </a>
-                                    <div class="article-meta d-flex gap-2 mt-1">
-                                        <span>@article.Source.Name</span>
-                                        @if (article.PublishedAt.HasValue)
-                                        {
-                                            <span>@article.PublishedAt.Value.ToString("M/d")</span>
-                                        }
+                        <div class="empty-state">
+                            <p class="mb-0">おすすめ記事はありません</p>
+                        </div>
+                    }
+                    else
+                    {
+                        foreach (var article in newsArticles)
+                        {
+                            <div class="article-item" @key="article.Id">
+                                <div class="d-flex gap-2">
+                                    <span style="font-size: 1rem;">🔥</span>
+                                    <div class="flex-grow-1">
+                                        <a href="@article.Url" target="_blank"
+                                           class="article-title text-decoration-none d-block"
+                                           title="@GetTooltipText(article)">
+                                            @article.Title
+                                        </a>
+                                        <div class="article-meta d-flex gap-2 mt-1">
+                                            <span>@article.Source.Name</span>
+                                            @if (article.PublishedAt.HasValue)
+                                            {
+                                                <span>@article.PublishedAt.Value.ToString("M/d")</span>
+                                            }
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        }
                     }
+                </div>
+
+                @if (newsArticles.Count < newsTotalCount)
+                {
+                    <div class="load-more-btn">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreNews" disabled="@isLoadingMoreNews">
+                            @if (isLoadingMoreNews)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            }
+                            もっと見る (@(newsTotalCount - newsArticles.Count) 件)
+                        </button>
+                    </div>
                 }
             </div>
         </div>
@@ -344,7 +372,7 @@ else
                 <div class="category-header d-flex align-items-center gap-2">
                     <span style="font-size: 1.25rem;">💻</span>
                     <h5 class="mb-0">技術記事</h5>
-                    <small class="text-muted ms-auto">@techArticles.Count()件</small>
+                    <small class="text-muted ms-auto">@techArticles.Count / @techTotalCount 件</small>
                 </div>
 
                 @if (techTrendTags.Any())
@@ -357,36 +385,51 @@ else
                     </div>
                 }
 
-                @if (!techArticles.Any())
-                {
-                    <div class="empty-state">
-                        <p class="mb-0">おすすめ記事はありません</p>
-                    </div>
-                }
-                else
-                {
-                    foreach (var article in techArticles)
+                <div class="category-articles">
+                    @if (!techArticles.Any())
                     {
-                        <div class="article-item" @key="article.Id">
-                            <div class="d-flex gap-2">
-                                <span style="font-size: 1rem;">🔥</span>
-                                <div class="flex-grow-1">
-                                    <a href="@article.Url" target="_blank"
-                                       class="article-title text-decoration-none d-block"
-                                       title="@GetTooltipText(article)">
-                                        @article.Title
-                                    </a>
-                                    <div class="article-meta d-flex gap-2 mt-1">
-                                        <span>@article.Source.Name</span>
-                                        @if (article.PublishedAt.HasValue)
-                                        {
-                                            <span>@article.PublishedAt.Value.ToString("M/d")</span>
-                                        }
+                        <div class="empty-state">
+                            <p class="mb-0">おすすめ記事はありません</p>
+                        </div>
+                    }
+                    else
+                    {
+                        foreach (var article in techArticles)
+                        {
+                            <div class="article-item" @key="article.Id">
+                                <div class="d-flex gap-2">
+                                    <span style="font-size: 1rem;">🔥</span>
+                                    <div class="flex-grow-1">
+                                        <a href="@article.Url" target="_blank"
+                                           class="article-title text-decoration-none d-block"
+                                           title="@GetTooltipText(article)">
+                                            @article.Title
+                                        </a>
+                                        <div class="article-meta d-flex gap-2 mt-1">
+                                            <span>@article.Source.Name</span>
+                                            @if (article.PublishedAt.HasValue)
+                                            {
+                                                <span>@article.PublishedAt.Value.ToString("M/d")</span>
+                                            }
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        }
                     }
+                </div>
+
+                @if (techArticles.Count < techTotalCount)
+                {
+                    <div class="load-more-btn">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreTech" disabled="@isLoadingMoreTech">
+                            @if (isLoadingMoreTech)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            }
+                            もっと見る (@(techTotalCount - techArticles.Count) 件)
+                        </button>
+                    </div>
                 }
             </div>
         </div>
@@ -397,7 +440,7 @@ else
                 <div class="category-header d-flex align-items-center gap-2">
                     <span style="font-size: 1.25rem;">📚</span>
                     <h5 class="mb-0">研究</h5>
-                    <small class="text-muted ms-auto">@academicArticles.Count()件</small>
+                    <small class="text-muted ms-auto">@academicArticles.Count / @academicTotalCount 件</small>
                 </div>
 
                 @if (academicTrendTags.Any())
@@ -410,36 +453,51 @@ else
                     </div>
                 }
 
-                @if (!academicArticles.Any())
-                {
-                    <div class="empty-state">
-                        <p class="mb-0">おすすめ記事はありません</p>
-                    </div>
-                }
-                else
-                {
-                    foreach (var article in academicArticles)
+                <div class="category-articles">
+                    @if (!academicArticles.Any())
                     {
-                        <div class="article-item" @key="article.Id">
-                            <div class="d-flex gap-2">
-                                <span style="font-size: 1rem;">🔥</span>
-                                <div class="flex-grow-1">
-                                    <a href="@article.Url" target="_blank"
-                                       class="article-title text-decoration-none d-block"
-                                       title="@GetTooltipText(article)">
-                                        @article.Title
-                                    </a>
-                                    <div class="article-meta d-flex gap-2 mt-1">
-                                        <span>@article.Source.Name</span>
-                                        @if (article.PublishedAt.HasValue)
-                                        {
-                                            <span>@article.PublishedAt.Value.ToString("M/d")</span>
-                                        }
+                        <div class="empty-state">
+                            <p class="mb-0">おすすめ記事はありません</p>
+                        </div>
+                    }
+                    else
+                    {
+                        foreach (var article in academicArticles)
+                        {
+                            <div class="article-item" @key="article.Id">
+                                <div class="d-flex gap-2">
+                                    <span style="font-size: 1rem;">🔥</span>
+                                    <div class="flex-grow-1">
+                                        <a href="@article.Url" target="_blank"
+                                           class="article-title text-decoration-none d-block"
+                                           title="@GetTooltipText(article)">
+                                            @article.Title
+                                        </a>
+                                        <div class="article-meta d-flex gap-2 mt-1">
+                                            <span>@article.Source.Name</span>
+                                            @if (article.PublishedAt.HasValue)
+                                            {
+                                                <span>@article.PublishedAt.Value.ToString("M/d")</span>
+                                            }
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        }
                     }
+                </div>
+
+                @if (academicArticles.Count < academicTotalCount)
+                {
+                    <div class="load-more-btn">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMoreAcademic" disabled="@isLoadingMoreAcademic">
+                            @if (isLoadingMoreAcademic)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            }
+                            もっと見る (@(academicTotalCount - academicArticles.Count) 件)
+                        </button>
+                    </div>
                 }
             </div>
         </div>
@@ -453,15 +511,28 @@ else
     private DateTime weekStart;
     private DateTime weekEnd;
 
-    // カテゴリ別記事
-    private IEnumerable<Article> newsArticles = Enumerable.Empty<Article>();
-    private IEnumerable<Article> techArticles = Enumerable.Empty<Article>();
-    private IEnumerable<Article> academicArticles = Enumerable.Empty<Article>();
+    // カテゴリ別記事（リストに変更してインクリメンタルロード対応）
+    private List<Article> newsArticles = new();
+    private List<Article> techArticles = new();
+    private List<Article> academicArticles = new();
+
+    // カテゴリ別の総件数
+    private int newsTotalCount = 0;
+    private int techTotalCount = 0;
+    private int academicTotalCount = 0;
+
+    // もっと見るボタンのローディング状態
+    private bool isLoadingMoreNews = false;
+    private bool isLoadingMoreTech = false;
+    private bool isLoadingMoreAcademic = false;
 
     // トレンドタグ（後で実装）
     private List<string> newsTrendTags = new();
     private List<string> techTrendTags = new();
     private List<string> academicTrendTags = new();
+
+    // ページングの定数
+    private const int PageSize = 10;
 
     // サマリー関連
     private Core.Entities.WeeklySummary? currentSummary;
@@ -519,14 +590,83 @@ else
     private async Task LoadCategoryArticles()
     {
         // DbContext はスレッドセーフではないため順次実行
-        newsArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, 10);
-        techArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, 10);
-        academicArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, 10);
+        // 初期ロード：最初のPageSize件を取得
+        var newsItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, 0, PageSize);
+        newsArticles = newsItems.ToList();
+        newsTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId);
+
+        var techItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, 0, PageSize);
+        techArticles = techItems.ToList();
+        techTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId);
+
+        var academicItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, 0, PageSize);
+        academicArticles = academicItems.ToList();
+        academicTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId);
 
         // トレンドタグを抽出（シンプル版：タイトルから頻出単語を抽出）
         newsTrendTags = ExtractSimpleTrendTags(newsArticles);
         techTrendTags = ExtractSimpleTrendTags(techArticles);
         academicTrendTags = ExtractSimpleTrendTags(academicArticles);
+    }
+
+    private async Task LoadMoreNews()
+    {
+        if (isLoadingMoreNews || newsArticles.Count >= newsTotalCount) return;
+
+        isLoadingMoreNews = true;
+        StateHasChanged();
+
+        try
+        {
+            var moreArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(
+                SourceCategory.News, RecommendThreshold, selectedKeywordId, newsArticles.Count, PageSize);
+            newsArticles.AddRange(moreArticles);
+        }
+        finally
+        {
+            isLoadingMoreNews = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadMoreTech()
+    {
+        if (isLoadingMoreTech || techArticles.Count >= techTotalCount) return;
+
+        isLoadingMoreTech = true;
+        StateHasChanged();
+
+        try
+        {
+            var moreArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(
+                SourceCategory.Technology, RecommendThreshold, selectedKeywordId, techArticles.Count, PageSize);
+            techArticles.AddRange(moreArticles);
+        }
+        finally
+        {
+            isLoadingMoreTech = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadMoreAcademic()
+    {
+        if (isLoadingMoreAcademic || academicArticles.Count >= academicTotalCount) return;
+
+        isLoadingMoreAcademic = true;
+        StateHasChanged();
+
+        try
+        {
+            var moreArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(
+                SourceCategory.Academic, RecommendThreshold, selectedKeywordId, academicArticles.Count, PageSize);
+            academicArticles.AddRange(moreArticles);
+        }
+        finally
+        {
+            isLoadingMoreAcademic = false;
+            StateHasChanged();
+        }
     }
 
     private List<string> ExtractSimpleTrendTags(IEnumerable<Article> articles)
