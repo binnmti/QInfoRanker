@@ -39,9 +39,9 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 
 ## 進捗
 
-- [ ] ブランチ作成
-- [ ] task-01 完了
-- [ ] task-02 完了
-- [ ] task-03 完了
+- [x] ブランチ作成
+- [x] task-01 完了
+- [x] task-02 完了
+- [x] task-03 完了
 - [ ] 全テスト通過
 - [ ] mainへマージ
