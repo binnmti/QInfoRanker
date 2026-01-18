@@ -1,5 +1,6 @@
 # Worker Deploy - Container Apps Job デプロイ
 # Worker層または共有層に変更があった場合に自動実行
+# 注意: Infrastructure変更時はWeb Appデプロイ完了後に実行される
 
 name: Deploy Worker
 
@@ -8,9 +9,13 @@ on:
     branches: [main]
     paths:
       - 'src/QInfoRanker.Worker/**'
-      - 'src/QInfoRanker.Core/**'
-      - 'src/QInfoRanker.Infrastructure/**'
+      # Core/Infrastructure変更時はworkflow_runで実行（Web App完了後）
       - '.github/workflows/worker-deploy.yml'
+  # Web Appデプロイ完了後に自動実行（DBマイグレーション適用後）
+  workflow_run:
+    workflows: ["Deploy WebApp"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:  # 手動実行も可能
 
 permissions:
@@ -27,6 +32,8 @@ jobs:
   build-and-push:
     name: Build and Push Image
     runs-on: ubuntu-latest
+    # workflow_runトリガー時はWeb Appデプロイ成功時のみ実行
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
@@ -34,6 +41,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # workflow_runトリガー時はWeb Appと同じコミットを使用
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Azure Login
         uses: azure/login@v2
@@ -45,13 +55,20 @@ jobs:
       - name: Login to ACR
         run: az acr login --name ${{ env.ACR_NAME }}
 
+      - name: Set commit SHA
+        id: commit
+        run: |
+          FULL_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "sha=${FULL_SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "full_sha=${FULL_SHA}" >> $GITHUB_OUTPUT
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,prefix=
+            type=raw,value=${{ steps.commit.outputs.sha }}
             type=raw,value=latest
 
       - name: Build and push
@@ -77,10 +94,16 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Set commit SHA
+        id: commit
+        run: |
+          FULL_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "sha=${FULL_SHA:0:7}" >> $GITHUB_OUTPUT
+
       - name: Update Container Apps Job
         run: |
-          # コミットSHAをタグとして使用
-          IMAGE_TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          # コミットSHAをタグとして使用（workflow_run時はWeb Appと同じコミット）
+          IMAGE_TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.commit.outputs.sha }}"
 
           echo "Updating job with image: $IMAGE_TAG"
 
@@ -99,5 +122,6 @@ jobs:
           echo "## Worker Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Job Name:** ${{ env.JOB_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.commit.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ steps.commit.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
