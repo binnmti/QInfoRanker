@@ -153,6 +153,41 @@ dotnet test
 - 週次まとめオプション: `Infrastructure/Scoring/WeeklySummaryOptions.cs`
 - スコアリングサービス: `Infrastructure/Scoring/ScoringService.cs`
 
+## 認証
+
+### 認証フロー
+
+| 環境 | 認証方式 | 説明 |
+|------|---------|------|
+| 開発環境 | DevAuthenticationHandler | 全ユーザーを "Developer" として自動認証（ダミー） |
+| 本番環境 | Azure AD (Entra ID) | Microsoft Identity Web による認証 |
+
+### 切り替え条件
+
+`appsettings.json` の `AzureAd:ClientId` で自動判定:
+- 有効な値が設定されている → Azure AD 認証（本番環境）
+- 未設定または `"YOUR_CLIENT_ID"` → DevAuth（開発環境）
+
+### Azure AD 設定
+
+本番環境で Azure AD 認証を有効にするには、Azure Portal でアプリを登録し、以下を設定:
+
+```json
+{
+  "AzureAd": {
+    "Instance": "https://login.microsoftonline.com/",
+    "TenantId": "your-tenant-id",
+    "ClientId": "your-client-id",
+    "CallbackPath": "/signin-oidc"
+  }
+}
+```
+
+### 関連ファイル
+- 認証設定: `Web/Program.cs`（認証設定セクション）
+- 開発用ハンドラー: `Web/DevAuthenticationHandler.cs`
+- 設定ファイル: `Web/appsettings.json`（AzureAd セクション）
+
 ## よくある作業
 
 ### キーワード関連の変更

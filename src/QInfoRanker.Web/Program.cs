@@ -12,14 +12,29 @@ using QInfoRanker.Web.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Azure AD 認証設定
-var azureAdSection = builder.Configuration.GetSection("AzureAd");
-var isAuthConfigured = !string.IsNullOrEmpty(azureAdSection["ClientId"])
-                       && azureAdSection["ClientId"] != "YOUR_CLIENT_ID";
+// ============================================================================
+// 認証設定
+// ============================================================================
+// 切り替え条件:
+//   - appsettings.json の AzureAd:ClientId が有効な値（"YOUR_CLIENT_ID" 以外）の場合
+//     → Azure AD (Entra ID) 認証を使用（本番環境向け）
+//   - AzureAd:ClientId が未設定または "YOUR_CLIENT_ID" の場合
+//     → DevAuthenticationHandler によるダミー認証（開発環境向け）
+//
+// 本番環境での設定方法:
+//   1. Azure Portal で App Registration を作成
+//   2. appsettings.json または環境変数で以下を設定:
+//      - AzureAd:TenantId: Azure AD テナントID
+//      - AzureAd:ClientId: アプリケーション（クライアント）ID
+// ============================================================================
 
-if (isAuthConfigured)
+var azureAdSection = builder.Configuration.GetSection("AzureAd");
+var isAzureAdConfigured = !string.IsNullOrEmpty(azureAdSection["ClientId"])
+                          && azureAdSection["ClientId"] != "YOUR_CLIENT_ID";
+
+if (isAzureAdConfigured)
 {
-    // 本番環境: Azure AD認証
+    // Azure AD (Entra ID) 認証 - 本番環境
     builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
         .AddMicrosoftIdentityWebApp(azureAdSection);
 
@@ -28,7 +43,8 @@ if (isAuthConfigured)
 }
 else
 {
-    // 開発環境: ダミー認証（全員認証済みとして扱う）
+    // ダミー認証 - 開発環境（DevAuthenticationHandler を参照）
+    // 全ユーザーを "Developer" として自動認証する
     builder.Services.AddAuthentication("Dev")
         .AddScheme<AuthenticationSchemeOptions, DevAuthenticationHandler>("Dev", null);
 }
@@ -93,8 +109,8 @@ app.MapRazorComponents<App>()
     .AddInteractiveWebAssemblyRenderMode()
     .AddAdditionalAssemblies(typeof(QInfoRanker.Web.Client._Imports).Assembly);
 
-// Microsoft Identity UI のエンドポイント
-if (isAuthConfigured)
+// Microsoft Identity UI のエンドポイント（Azure AD 認証時のみ）
+if (isAzureAdConfigured)
 {
     app.MapControllers();
 }
