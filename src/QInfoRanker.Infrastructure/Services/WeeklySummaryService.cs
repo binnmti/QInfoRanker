@@ -412,6 +412,44 @@ public class WeeklySummaryService : IWeeklySummaryService
         return summaries.Count;
     }
 
+    public async Task<SummaryDiagnostics> GetDiagnosticsAsync(int keywordId, CancellationToken cancellationToken = default)
+    {
+        var (weekStart, weekEnd) = GetCurrentWeekRange();
+        var isConfigured = _chatClient != null;
+        var deploymentName = isConfigured ? _summaryOptions.DeploymentName : null;
+
+        // カテゴリ別に記事数をカウント
+        var categoryArticles = await GetArticlesByCategoryAsync(keywordId, weekStart, weekEnd, cancellationToken);
+        var totalCount = categoryArticles.News.Count + categoryArticles.Tech.Count + categoryArticles.Academic.Count;
+
+        // ブロック理由を判定
+        string? blockingReason = null;
+        var canGenerate = true;
+
+        if (!isConfigured)
+        {
+            canGenerate = false;
+            blockingReason = "Azure OpenAI が設定されていません（Endpoint または ApiKey が未設定）";
+        }
+        else if (totalCount < MinArticlesForSummary)
+        {
+            canGenerate = false;
+            blockingReason = $"対象記事が不足しています（{totalCount}件 / 必要{MinArticlesForSummary}件以上）。今週スコアリング済み（IsRelevant=true, LlmScore設定済み）の記事を収集してください。";
+        }
+
+        return new SummaryDiagnostics(
+            IsAzureOpenAIConfigured: isConfigured,
+            DeploymentName: deploymentName,
+            NewsArticleCount: categoryArticles.News.Count,
+            TechArticleCount: categoryArticles.Tech.Count,
+            AcademicArticleCount: categoryArticles.Academic.Count,
+            TotalArticleCount: totalCount,
+            MinRequiredArticles: MinArticlesForSummary,
+            CanGenerateSummary: canGenerate,
+            BlockingReason: blockingReason
+        );
+    }
+
     private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()
     {
         var today = DateTime.UtcNow.Date;

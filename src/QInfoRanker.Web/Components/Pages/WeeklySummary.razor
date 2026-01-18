@@ -4,6 +4,7 @@
 @rendermode InteractiveServer
 @using QInfoRanker.Core.Entities
 @using QInfoRanker.Core.Enums
+@using QInfoRanker.Core.Interfaces.Services
 @using Markdig
 @inject IArticleService ArticleService
 @inject IKeywordService KeywordService
@@ -171,7 +172,7 @@
                     <span class="text-muted">
                         このキーワードの週間サマリーはまだありません
                     </span>
-                    <button class="btn btn-sm btn-outline-primary" @onclick="GenerateSummary" disabled="@isGenerating">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="GenerateSummary" disabled="@(isGenerating || (diagnostics != null && !diagnostics.CanGenerateSummary))">
                         @if (isGenerating)
                         {
                             <span class="spinner-border spinner-border-sm me-1" role="status"></span>
@@ -183,6 +184,36 @@
                         }
                     </button>
                 </div>
+                @if (diagnostics != null)
+                {
+                    <div class="mt-3 small">
+                        <div class="d-flex flex-wrap gap-3 text-muted mb-2">
+                            <span title="Azure OpenAI設定状態">
+                                @if (diagnostics.IsAzureOpenAIConfigured)
+                                {
+                                    <span class="text-success">AI: 設定済み (@diagnostics.DeploymentName)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-danger">AI: 未設定</span>
+                                }
+                            </span>
+                            <span title="スコアリング済み記事数">
+                                記事: @(diagnostics.TotalArticleCount)件
+                                (ニュース @(diagnostics.NewsArticleCount) / 技術 @(diagnostics.TechArticleCount) / 研究 @(diagnostics.AcademicArticleCount))
+                            </span>
+                            <span title="必要な最低記事数">
+                                必要: @(diagnostics.MinRequiredArticles)件以上
+                            </span>
+                        </div>
+                        @if (!diagnostics.CanGenerateSummary && !string.IsNullOrEmpty(diagnostics.BlockingReason))
+                        {
+                            <div class="alert alert-warning py-2 mb-0">
+                                <strong>生成できない理由:</strong> @diagnostics.BlockingReason
+                            </div>
+                        }
+                    </div>
+                }
                 @if (!string.IsNullOrEmpty(generateError))
                 {
                     <div class="alert alert-danger mt-2 mb-0 py-2 small">@generateError</div>
@@ -384,6 +415,7 @@ else
 
     // サマリー関連
     private Core.Entities.WeeklySummary? currentSummary;
+    private SummaryDiagnostics? diagnostics;
     private bool isLoadingSummary = false;
     private bool isGenerating = false;
     private string? generateError;
@@ -497,6 +529,7 @@ else
         if (!selectedKeywordId.HasValue)
         {
             currentSummary = null;
+            diagnostics = null;
             return;
         }
 
@@ -506,6 +539,15 @@ else
         try
         {
             currentSummary = await SummaryService.GetCurrentWeekSummaryAsync(selectedKeywordId.Value);
+            // サマリーがない場合は診断情報を取得
+            if (currentSummary == null)
+            {
+                diagnostics = await SummaryService.GetDiagnosticsAsync(selectedKeywordId.Value);
+            }
+            else
+            {
+                diagnostics = null;
+            }
         }
         finally
         {
@@ -524,10 +566,21 @@ else
         try
         {
             currentSummary = await SummaryService.GenerateSummaryAsync(selectedKeywordId.Value);
+            diagnostics = null; // 成功したら診断情報をクリア
+        }
+        catch (InvalidOperationException ex)
+        {
+            // 前提条件エラー（記事数不足など）
+            generateError = ex.Message;
+            // 診断情報を更新
+            diagnostics = await SummaryService.GetDiagnosticsAsync(selectedKeywordId.Value);
         }
         catch (Exception ex)
         {
+            // その他のエラー（API接続エラーなど）
             generateError = $"生成エラー: {ex.Message}";
+            // 診断情報を更新
+            diagnostics = await SummaryService.GetDiagnosticsAsync(selectedKeywordId.Value);
         }
         finally
         {

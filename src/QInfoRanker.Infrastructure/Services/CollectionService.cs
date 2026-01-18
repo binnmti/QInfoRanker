@@ -257,9 +257,21 @@ public class CollectionService : ICollectionService
                 _logger.LogInformation("Generated weekly summary for '{Keyword}': {Title}", keyword.Term, summary.Title);
             }
         }
+        catch (InvalidOperationException ex)
+        {
+            // 前提条件エラー（記事数不足など）- 警告として通知
+            _logger.LogWarning("Weekly summary not generated for '{Keyword}': {Reason}", keyword.Term, ex.Message);
+            await _progressNotifier.NotifyErrorAsync(new CollectionErrorEvent(
+                keywordId, ErrorSeverity.Warning, "WeeklySummary",
+                $"週次サマリーを生成できません: {ex.Message}", IsFatal: false));
+        }
         catch (Exception ex)
         {
+            // その他のエラー（API接続エラーなど）- 警告として通知
             _logger.LogWarning(ex, "Failed to generate weekly summary for '{Keyword}'", keyword.Term);
+            await _progressNotifier.NotifyErrorAsync(new CollectionErrorEvent(
+                keywordId, ErrorSeverity.Warning, "WeeklySummary",
+                $"週次サマリー生成中にエラーが発生しました: {ex.Message}", IsFatal: false));
         }
     }
 
