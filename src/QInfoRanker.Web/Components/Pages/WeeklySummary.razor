@@ -653,7 +653,7 @@ else
         }
     }
 
-    private const int RecommendThreshold = 17;  // おすすめ表示の閾値（0-20）
+    private const int RecommendThreshold = 10;  // おすすめ表示の閾値（0-20）、17は厳しすぎたため緩和
 
     private async Task LoadCategoryArticles()
     {
