@@ -21,6 +21,11 @@ public static class DbSeeder
         {
             await SeedSourcesAsync(context);
         }
+        else
+        {
+            // 既存SourceのCategoryを更新（マイグレーションで追加されたカラム）
+            await UpdateSourceCategoriesAsync(context);
+        }
 
         // サンプルデータは明示的に有効化された場合のみ作成（本番環境では不要）
         if (seedSampleData && !await context.Keywords.AnyAsync())
@@ -277,6 +282,61 @@ public static class DbSeeder
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
             // DB更新エラーもスキップ
+        }
+    }
+
+    /// <summary>
+    /// 既存SourceのCategoryを更新（マイグレーションで追加されたカラム用）
+    /// </summary>
+    private static async Task UpdateSourceCategoriesAsync(AppDbContext context)
+    {
+        // ソース名とカテゴリの対応辞書
+        var categoryMap = new Dictionary<string, SourceCategory>
+        {
+            // Technology
+            { "Hatena Bookmark", SourceCategory.Technology },
+            { "Qiita", SourceCategory.Technology },
+            { "Zenn", SourceCategory.Technology },
+            { "Hacker News", SourceCategory.Technology },
+            { "Dev.to", SourceCategory.Technology },
+            { "Medium", SourceCategory.Technology },
+            { "GitHub", SourceCategory.Technology },
+            // Academic
+            { "arXiv", SourceCategory.Academic },
+            { "Semantic Scholar", SourceCategory.Academic },
+            // Medical
+            { "PubMed", SourceCategory.Medical },
+            // News
+            { "Google News JP", SourceCategory.News },
+            { "Google News EN", SourceCategory.News },
+            { "Yahoo! News Japan", SourceCategory.News },
+            { "BBC News", SourceCategory.News },
+            { "MarketBeat", SourceCategory.News },
+            // Social
+            { "Reddit", SourceCategory.Social },
+            { "X (Twitter)", SourceCategory.Social },
+            // Entertainment
+            { "Note.com", SourceCategory.Entertainment },
+        };
+
+        var sources = await context.Sources.ToListAsync();
+        var updated = false;
+
+        foreach (var source in sources)
+        {
+            if (categoryMap.TryGetValue(source.Name, out var category))
+            {
+                if (source.Category != category)
+                {
+                    source.Category = category;
+                    updated = true;
+                }
+            }
+        }
+
+        if (updated)
+        {
+            await context.SaveChangesAsync();
         }
     }
 }
