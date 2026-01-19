@@ -1,5 +1,4 @@
 using System.ClientModel;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -474,10 +473,10 @@ public class WeeklySummaryService : IWeeklySummaryService
     private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()
     {
         var today = DateTime.UtcNow.Date;
-        var culture = new CultureInfo("ja-JP");
         var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
         var weekStart = today.AddDays(-diff);
-        var weekEnd = weekStart.AddDays(6);
+        // 週末日の23:59:59まで含める（ArticleService.csと同じ計算）
+        var weekEnd = weekStart.AddDays(6).AddHours(23).AddMinutes(59).AddSeconds(59);
         return (weekStart, weekEnd);
     }
 
