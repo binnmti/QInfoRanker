@@ -188,10 +188,10 @@ public class ArticleService : IArticleService
 
     private static (DateTime WeekStart, DateTime WeekEnd) GetCurrentWeekRange()
     {
+        // 過去7日間方式：常に今日から6日前〜今日を対象とする
         var today = DateTime.UtcNow.Date;
-        var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
-        var weekStart = today.AddDays(-diff);
-        var weekEnd = weekStart.AddDays(6).AddHours(23).AddMinutes(59).AddSeconds(59);
+        var weekStart = today.AddDays(-6);
+        var weekEnd = today.AddHours(23).AddMinutes(59).AddSeconds(59);
         return (weekStart, weekEnd);
     }
 

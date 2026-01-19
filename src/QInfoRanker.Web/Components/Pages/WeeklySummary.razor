@@ -502,10 +502,10 @@ else
 
     private void CalculateWeekRange()
     {
+        // 過去7日間方式：常に今日から6日前〜今日を対象とする
         var today = DateTime.UtcNow.Date;
-        var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
-        weekStart = today.AddDays(-diff);
-        weekEnd = weekStart.AddDays(6);
+        weekStart = today.AddDays(-6);
+        weekEnd = today;
     }
 
     private async Task LoadAll()

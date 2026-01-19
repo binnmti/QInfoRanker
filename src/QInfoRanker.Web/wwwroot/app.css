@@ -13,8 +13,8 @@
     --color-border-light: #e8eaed;
 
     --color-text-primary: #1f2328;
-    --color-text-secondary: #59636e;
-    --color-text-muted: #8b949e;
+    --color-text-secondary: #4b5563;
+    --color-text-muted: #6b7280;
 
     --color-accent: #0969da;
     --color-accent-hover: #0550ae;
@@ -53,8 +53,9 @@
     /* Typography */
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", Helvetica, Arial, sans-serif;
     --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    --font-size-sm: 0.75rem;
-    --font-size-base: 0.875rem;
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.8125rem;
+    --font-size-base: 0.9rem;
     --font-size-md: 1rem;
     --font-size-lg: 1.25rem;
     --line-height-tight: 1.25;
@@ -526,7 +527,7 @@ button, a, .btn, .form-control, .form-select, .badge, .card {
 
 /* Time info */
 .time-info {
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     color: var(--color-text-muted);
 }
 
@@ -545,6 +546,23 @@ button, a, .btn, .form-control, .form-select, .badge, .card {
 
 .article-item a.fw-bold:hover {
     color: var(--color-accent);
+}
+
+/* Article summary - readable size */
+.article-summary {
+    font-size: var(--font-size-base);
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+}
+
+/* Article metadata row */
+.article-meta {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+}
+
+.article-meta .badge {
+    font-size: var(--font-size-xs);
 }
 
 /* ===========================================

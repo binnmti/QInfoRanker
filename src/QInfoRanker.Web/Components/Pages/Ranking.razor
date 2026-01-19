@@ -411,12 +411,12 @@ else
                 }
                 @if (!string.IsNullOrEmpty(displaySummary))
                 {
-                    <p class="mt-2 mb-1 text-muted small" style="line-height: 1.5;">
+                    <p class="mt-2 mb-1 text-secondary article-summary">
                         @(displaySummary.Length > 600 ? displaySummary[..600] + "..." : displaySummary)
                     </p>
                 }
                 @* Additional metadata row *@
-                <div class="mt-1 d-flex flex-wrap gap-2 align-items-center small text-muted" style="font-size: 0.7rem;">
+                <div class="mt-1 d-flex flex-wrap gap-2 align-items-center article-meta">
                     @if (!string.IsNullOrEmpty(article.Keyword?.Term))
                     {
                         <span class="badge bg-dark">🔑 @article.Keyword.Term</span>
