@@ -148,7 +148,8 @@ public class ArticleService : IArticleService
             .Include(a => a.Source)
             .Include(a => a.Keyword)
             .Where(a => a.Source.Category == category)
-            .Where(a => a.IsRelevant == true)
+            // Ensembleスコアがあれば表示（IsRelevantがnullでも許可）
+            .Where(a => a.IsRelevant == true || (a.LlmScore.HasValue && a.IsRelevant == null))
             .Where(a => a.LlmScore.HasValue)
             .Where(a => a.RecommendScore.HasValue && a.RecommendScore.Value >= recommendThreshold);
 
