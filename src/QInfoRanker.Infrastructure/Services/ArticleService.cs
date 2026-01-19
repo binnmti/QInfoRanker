@@ -114,9 +114,11 @@ public class ArticleService : IArticleService
         int? keywordId = null,
         int skip = 0,
         int take = 10,
+        DateTime? weekStart = null,
+        DateTime? weekEnd = null,
         CancellationToken cancellationToken = default)
     {
-        var query = BuildWeeklyRecommendedQuery(category, recommendThreshold, keywordId);
+        var query = BuildWeeklyRecommendedQuery(category, recommendThreshold, keywordId, weekStart, weekEnd);
 
         return await query
             .OrderByDescending(a => a.RecommendScore)
@@ -130,28 +132,39 @@ public class ArticleService : IArticleService
         SourceCategory category,
         int recommendThreshold,
         int? keywordId = null,
+        DateTime? weekStart = null,
+        DateTime? weekEnd = null,
         CancellationToken cancellationToken = default)
     {
-        var query = BuildWeeklyRecommendedQuery(category, recommendThreshold, keywordId);
+        var query = BuildWeeklyRecommendedQuery(category, recommendThreshold, keywordId, weekStart, weekEnd);
         return await query.CountAsync(cancellationToken);
     }
 
     private IQueryable<Article> BuildWeeklyRecommendedQuery(
         SourceCategory category,
         int recommendThreshold,
-        int? keywordId)
+        int? keywordId,
+        DateTime? weekStartParam = null,
+        DateTime? weekEndParam = null)
     {
-        var (weekStart, weekEnd) = GetCurrentWeekRange();
+        // パラメータが指定されていなければ現在の週を使用
+        var (currentWeekStart, currentWeekEnd) = GetCurrentWeekRange();
+        var weekStart = weekStartParam ?? currentWeekStart;
+        var weekEnd = weekEndParam ?? currentWeekEnd;
+
+        // 既存サマリーのWeekEndに時間が含まれていない場合は23:59:59を追加
+        if (weekEnd.TimeOfDay == TimeSpan.Zero)
+        {
+            weekEnd = weekEnd.AddHours(23).AddMinutes(59).AddSeconds(59);
+        }
 
         var query = _context.Articles
             .AsNoTracking()
             .Include(a => a.Source)
             .Include(a => a.Keyword)
             .Where(a => a.Source.Category == category)
-            // Ensembleスコアがあれば表示（IsRelevantがnullでも許可）
-            .Where(a => a.IsRelevant == true || (a.LlmScore.HasValue && a.IsRelevant == null))
-            .Where(a => a.LlmScore.HasValue)
-            .Where(a => a.RecommendScore.HasValue && a.RecommendScore.Value >= recommendThreshold);
+            // サマリー生成と同じ条件（IsRelevant == true && LlmScore.HasValue）
+            .Where(a => a.IsRelevant == true && a.LlmScore.HasValue);
 
         if (keywordId.HasValue)
         {
