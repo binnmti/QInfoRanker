@@ -530,23 +530,22 @@ else
 
     private async Task LoadCategoryArticles()
     {
-        // サマリーの週範囲を使用（なければ現在の週）
-        var summaryWeekStart = currentSummary?.WeekStart;
-        var summaryWeekEnd = currentSummary?.WeekEnd;
+        // 常に「過去7日間」を使用（サマリーの週範囲に依存しない）
+        // weekStart/weekEnd に null を渡すと ArticleService.GetCurrentWeekRange() が使われる
 
         // DbContext はスレッドセーフではないため順次実行
         // 初期ロード：最初のPageSize件を取得
-        var newsItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, 0, PageSize, summaryWeekStart, summaryWeekEnd);
+        var newsItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, 0, PageSize);
         newsArticles = newsItems.ToList();
-        newsTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId, summaryWeekStart, summaryWeekEnd);
+        newsTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.News, RecommendThreshold, selectedKeywordId);
 
-        var techItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, 0, PageSize, summaryWeekStart, summaryWeekEnd);
+        var techItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, 0, PageSize);
         techArticles = techItems.ToList();
-        techTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId, summaryWeekStart, summaryWeekEnd);
+        techTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.Technology, RecommendThreshold, selectedKeywordId);
 
-        var academicItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, 0, PageSize, summaryWeekStart, summaryWeekEnd);
+        var academicItems = await ArticleService.GetWeeklyRecommendedByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, 0, PageSize);
         academicArticles = academicItems.ToList();
-        academicTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId, summaryWeekStart, summaryWeekEnd);
+        academicTotalCount = await ArticleService.GetWeeklyRecommendedCountByCategoryAsync(SourceCategory.Academic, RecommendThreshold, selectedKeywordId);
 
         // トレンドタグを抽出（シンプル版：タイトルから頻出単語を抽出）
         newsTrendTags = ExtractSimpleTrendTags(newsArticles);
@@ -564,8 +563,7 @@ else
         try
         {
             var moreArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(
-                SourceCategory.News, RecommendThreshold, selectedKeywordId, newsArticles.Count, PageSize,
-                currentSummary?.WeekStart, currentSummary?.WeekEnd);
+                SourceCategory.News, RecommendThreshold, selectedKeywordId, newsArticles.Count, PageSize);
             newsArticles.AddRange(moreArticles);
         }
         finally
@@ -585,8 +583,7 @@ else
         try
         {
             var moreArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(
-                SourceCategory.Technology, RecommendThreshold, selectedKeywordId, techArticles.Count, PageSize,
-                currentSummary?.WeekStart, currentSummary?.WeekEnd);
+                SourceCategory.Technology, RecommendThreshold, selectedKeywordId, techArticles.Count, PageSize);
             techArticles.AddRange(moreArticles);
         }
         finally
@@ -606,8 +603,7 @@ else
         try
         {
             var moreArticles = await ArticleService.GetWeeklyRecommendedByCategoryAsync(
-                SourceCategory.Academic, RecommendThreshold, selectedKeywordId, academicArticles.Count, PageSize,
-                currentSummary?.WeekStart, currentSummary?.WeekEnd);
+                SourceCategory.Academic, RecommendThreshold, selectedKeywordId, academicArticles.Count, PageSize);
             academicArticles.AddRange(moreArticles);
         }
         finally
