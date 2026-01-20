@@ -14,15 +14,20 @@ output "resource_group_location" {
 output "deployment_summary" {
   description = "Summary of deployed resources"
   value = {
-    web_app_url       = "https://${azurerm_linux_web_app.main.default_hostname}"
-    sql_server_fqdn   = azurerm_mssql_server.main.fully_qualified_domain_name
-    sql_database      = azurerm_mssql_database.main.name
-    key_vault_uri     = azurerm_key_vault.main.vault_uri
-    acr_server        = azurerm_container_registry.main.login_server
-    openai_endpoint   = azurerm_cognitive_account.openai.endpoint
-    filtering_model   = azurerm_cognitive_deployment.filtering.name
-    ensemble_model    = azurerm_cognitive_deployment.ensemble.name
-    job_schedule      = var.collection_schedule
+    web_app_url              = "https://${azurerm_linux_web_app.main.default_hostname}"
+    sql_server_fqdn          = azurerm_mssql_server.main.fully_qualified_domain_name
+    sql_database             = azurerm_mssql_database.main.name
+    key_vault_uri            = azurerm_key_vault.main.vault_uri
+    acr_server               = azurerm_container_registry.main.login_server
+    openai_endpoint          = azurerm_cognitive_account.openai.endpoint
+    filtering_model          = azurerm_cognitive_deployment.filtering.name
+    ensemble_model           = azurerm_cognitive_deployment.ensemble.name
+    job_schedule             = var.collection_schedule
+    # Image generation disabled - DALL-E 3 not available
+    # dalle3_model             = azurerm_cognitive_deployment.dalle3.name
+    # storage_account          = azurerm_storage_account.images.name
+    # image_container          = azurerm_storage_container.weekly_summary_images.name
+    image_generation_enabled = false
   }
 }
 

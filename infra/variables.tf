@@ -74,6 +74,40 @@ variable "ensemble_model" {
   default     = "o3-mini"
 }
 
+variable "dalle3_model" {
+  description = "Model deployment name for DALL-E 3 image generation"
+  type        = string
+  default     = "dall-e-3"
+}
+
+# Image Generation settings
+variable "image_container_name" {
+  description = "Blob container name for weekly summary images"
+  type        = string
+  default     = "weekly-summary-images"
+}
+
+variable "enable_image_generation" {
+  description = "Enable DALL-E 3 image generation for weekly summaries"
+  type        = bool
+  default     = true
+}
+
+# Image Generation endpoint (separate from main OpenAI, e.g., swedencentral Foundry)
+variable "image_generation_endpoint" {
+  description = "Azure OpenAI/Foundry endpoint for DALL-E 3 image generation (if different from main endpoint)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "image_generation_api_key" {
+  description = "API key for DALL-E 3 image generation endpoint"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # Container Apps Job settings
 variable "collection_schedule" {
   description = "Cron expression for collection job schedule (UTC)"

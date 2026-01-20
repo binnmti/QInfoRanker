@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="1.4.0" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <!-- OpenAI SDK (stable) with v1 API endpoint and Responses API support -->
     <PackageReference Include="OpenAI" Version="2.8.0" />

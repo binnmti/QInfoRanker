@@ -18,7 +18,6 @@
     <h1 class="mb-0">今週のおすすめ</h1>
     <div class="d-flex align-items-center gap-2">
         <div class="btn-group" role="group">
-            <a href="/weekly" class="btn btn-sm @(selectedKeywordId == null ? "btn-primary" : "btn-outline-primary")">すべて</a>
             @foreach (var keyword in keywords)
             {
                 <a href="/weekly/@keyword.GetUrlIdentifier()"
@@ -92,6 +91,15 @@
                         </AuthorizeView>
                     </div>
                 </div>
+                @if (!string.IsNullOrEmpty(currentSummary.ImageUrl))
+                {
+                    <div class="summary-image mb-3">
+                        <img src="@currentSummary.ImageUrl"
+                             alt="@currentSummary.Title"
+                             class="img-fluid rounded"
+                             style="max-height: 300px; width: 100%; object-fit: cover;" />
+                    </div>
+                }
                 <div class="summary-content">
                     @((MarkupString)RenderMarkdown(currentSummary.Content))
                 </div>
@@ -186,7 +194,6 @@ else
                 <div class="category-header d-flex align-items-center gap-2">
                     <span style="font-size: 1.25rem;">📰</span>
                     <h5 class="mb-0">ニュース</h5>
-                    <small class="text-muted ms-auto">@newsArticles.Count / @newsTotalCount 件</small>
                 </div>
 
                 @if (newsTrendTags.Any())
@@ -258,7 +265,6 @@ else
                 <div class="category-header d-flex align-items-center gap-2">
                     <span style="font-size: 1.25rem;">💻</span>
                     <h5 class="mb-0">技術記事</h5>
-                    <small class="text-muted ms-auto">@techArticles.Count / @techTotalCount 件</small>
                 </div>
 
                 @if (techTrendTags.Any())
@@ -330,7 +336,6 @@ else
                 <div class="category-header d-flex align-items-center gap-2">
                     <span style="font-size: 1.25rem;">📚</span>
                     <h5 class="mb-0">研究</h5>
-                    <small class="text-muted ms-auto">@academicArticles.Count / @academicTotalCount 件</small>
                 </div>
 
                 @if (academicTrendTags.Any())
@@ -473,7 +478,8 @@ else
     {
         if (string.IsNullOrEmpty(KeywordParam))
         {
-            selectedKeywordId = null;
+            // キーワードパラメータがない場合、最初のキーワードを自動選択
+            selectedKeywordId = keywords.FirstOrDefault()?.Id;
             return;
         }
 

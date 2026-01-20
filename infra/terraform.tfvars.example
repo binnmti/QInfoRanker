@@ -26,3 +26,14 @@ azure_openai_api_key  = "your-openai-api-key-here"
 
 # Optional: Custom domain
 # custom_domain = "qinforanker.example.com"
+
+# Optional: Image Generation settings
+# Enable to create Blob Storage and store DALL-E 3 images
+# enable_image_generation = true
+# dalle3_model = "dall-e-3"
+# image_container_name = "weekly-summary-images"
+
+# Image Generation endpoint (required if DALL-E 3 is in different region, e.g., swedencentral)
+# If not set, will use the main Azure OpenAI endpoint
+# image_generation_endpoint = "https://your-foundry.services.ai.azure.com"
+# image_generation_api_key  = "your-image-generation-api-key"

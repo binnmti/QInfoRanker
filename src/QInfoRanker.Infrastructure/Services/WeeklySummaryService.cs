@@ -22,6 +22,7 @@ public class WeeklySummaryService : IWeeklySummaryService
     private readonly AppDbContext _context;
     private readonly AzureOpenAIOptions _openAIOptions;
     private readonly WeeklySummaryOptions _summaryOptions;
+    private readonly IImageGenerationService _imageGenerationService;
     private readonly ILogger<WeeklySummaryService> _logger;
     private readonly ChatClient? _chatClient;
 
@@ -32,11 +33,13 @@ public class WeeklySummaryService : IWeeklySummaryService
         AppDbContext context,
         IOptions<AzureOpenAIOptions> openAIOptions,
         IOptions<WeeklySummaryOptions> summaryOptions,
+        IImageGenerationService imageGenerationService,
         ILogger<WeeklySummaryService> logger)
     {
         _context = context;
         _openAIOptions = openAIOptions.Value;
         _summaryOptions = summaryOptions.Value;
+        _imageGenerationService = imageGenerationService;
         _logger = logger;
 
         if (!string.IsNullOrEmpty(_openAIOptions.Endpoint) && !string.IsNullOrEmpty(_openAIOptions.ApiKey))
@@ -128,6 +131,21 @@ public class WeeklySummaryService : IWeeklySummaryService
 
         var (title, content) = await GenerateSummaryContentAsync(keyword.Term, categoryArticles, cancellationToken);
 
+        // 画像を生成（失敗しても続行）
+        string? imageUrl = null;
+        if (_imageGenerationService.IsEnabled)
+        {
+            try
+            {
+                imageUrl = await _imageGenerationService.GenerateAndUploadImageAsync(
+                    title, content, keyword.Term, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to generate image for weekly summary, continuing without image");
+            }
+        }
+
         // 履歴として保持するため、常に新しい要約を作成
         var summary = new WeeklySummary
         {
@@ -137,14 +155,15 @@ public class WeeklySummaryService : IWeeklySummaryService
             Title = title,
             Content = content,
             ArticleCount = totalCount,
-            GeneratedAt = DateTime.UtcNow
+            GeneratedAt = DateTime.UtcNow,
+            ImageUrl = imageUrl
         };
 
         _context.WeeklySummaries.Add(summary);
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Generated weekly summary for keyword '{Keyword}' with {Count} articles",
-            keyword.Term, totalCount);
+        _logger.LogInformation("Generated weekly summary for keyword '{Keyword}' with {Count} articles{ImageStatus}",
+            keyword.Term, totalCount, imageUrl != null ? " (with image)" : " (without image)");
 
         return summary;
     }
@@ -250,8 +269,13 @@ public class WeeklySummaryService : IWeeklySummaryService
 
         var (weekStart, weekEnd) = GetCurrentWeekRange();
         var prompt = $$"""
-            あなたは優秀なテクノロジーアナリストです。
-            以下の記事情報を元に、「{{keywordTerm}}」に関する今週（{{weekStart:M/d}}〜{{weekEnd:M/d}}）の動向を日本語でまとめてください。
+            あなたは池上彰のような、難しいニュースを誰にでも分かりやすく伝えるジャーナリストです。
+            以下の記事情報を元に、「{{keywordTerm}}」に関する今週（{{weekStart:M/d}}〜{{weekEnd:M/d}}）の動向を、高校生や大学1年生でも理解できるように日本語でまとめてください。
+
+            【想定読者】
+            - 「{{keywordTerm}}」に興味を持ち始めたばかりの高校生・大学生
+            - 専門用語を知らなくても読み進められるようにする
+            - 調べ物をしなくても内容が理解できることを目指す
 
             【今週の記事（カテゴリ別）】
             {{articleInfo}}
@@ -272,16 +296,35 @@ public class WeeklySummaryService : IWeeklySummaryService
             - 悪い例: [こちらの記事](URL)で詳しく ← メタ的表現はNG
 
             【本文の要件】
-            - 600〜800文字程度
+            - 文字数は気にせず、分かりやすさを最優先する（1000〜2000文字程度を目安）
             - 具体的な企業名、製品名、技術名、数値を含める
             - 「今週起きた具体的な出来事」だけを書く。将来の展望や予測は書かない
             - 禁止表現：「期待が高まっている」「注目を集めている」「今後も〜」「可能性を示している」
             - 事実ベース：「〜が〜を発表した」「〜で〜が実現した」「〜が〜%向上した」
-            - 箇条書きや見出しは使わず、流れるような文章で書く
+
+            【Markdown書式の活用】
+            本文はMarkdown形式で記述し、以下の書式を使って読みやすくしてください：
+            - **太字**: 重要なキーワード、企業名、製品名、数値などを **太字** で強調する
+            - 見出し: トピックが変わる際は「## 見出し」で区切る（2〜3個程度）
+            - 改行は最小限に: 各見出しの中では改行せず、文章を続けて書く。見出し間のみ空行を入れる
+
+            例：
+            ## IBMの新プロセッサ発表
+            [IBMが新しい量子プロセッサを発表](URL)しました。このプロセッサは **1000量子ビット** を搭載し、従来の **10倍** の処理能力を実現しています。量子ビットとは情報を扱う最小単位のことで、これが多いほど複雑な計算ができます。また、[Googleも同様の発表](URL)を行い、競争が激化しています。
+
+            ## 実用化に向けた動き
+            [マイクロソフトが量子コンピュータのクラウドサービスを開始](URL)しました。これにより、一般企業でも量子計算を試せるようになりました。
+
+            【分かりやすさの工夫】
+            - 専門用語が出てきたら、その場で簡単に説明を入れる（例：「量子ビット（情報を扱う基本単位）」）
+            - 難しい概念は身近なものに例える（例：「これは従来のコンピュータで言えば〇〇のようなもの」）
+            - 「なぜこれが重要なのか」「何がすごいのか」を一言で添える
+            - 数字が出てきたら、その大きさや意味が分かるように補足する（例：「従来の10倍」「世界で初めて」など）
+            - 一文を短く区切り、リズムよく読める文章にする
 
             """;
 
-        var systemPrompt = "あなたはテクノロジーニュースライターです。JSON形式でのみ回答してください。本文には必ず複数のMarkdownリンク[テキスト](URL)を含めてください。";
+        var systemPrompt = "あなたは難しいテクノロジーニュースを分かりやすく伝えるジャーナリストです。JSON形式でのみ回答してください。本文はMarkdown形式で、**太字**や##見出しを活用して視覚的に読みやすく整えてください。必ず複数のMarkdownリンク[テキスト](URL)を含め、専門用語には簡単な説明を添えてください。";
         var messages = new List<ChatMessage>
         {
             new SystemChatMessage(systemPrompt),

@@ -39,6 +39,8 @@ public static class DependencyInjection
         services.Configure<BatchScoringOptions>(configuration.GetSection(BatchScoringOptions.SectionName));
         services.Configure<EnsembleScoringOptions>(configuration.GetSection(EnsembleScoringOptions.SectionName));
         services.Configure<WeeklySummaryOptions>(configuration.GetSection(WeeklySummaryOptions.SectionName));
+        services.Configure<SummaryImageOptions>(configuration.GetSection("ImageGeneration"));
+        services.Configure<BlobStorageOptions>(configuration.GetSection("BlobStorage"));
 
         // HttpClient for collectors (User-Agent required to avoid bot blocking)
         const string userAgent = "QInfoRanker/1.0 (https://github.com/qinforanker; contact@qinforanker.app)";
@@ -114,6 +116,7 @@ public static class DependencyInjection
         services.AddScoped<IArticleService, ArticleService>();
         services.AddScoped<IScoringService, ScoringService>();
         services.AddScoped<ISourceRecommendationService, SourceRecommendationService>();
+        services.AddScoped<IImageGenerationService, ImageGenerationService>();
         services.AddScoped<IWeeklySummaryService, WeeklySummaryService>();
         services.AddScoped<ICollectionService, CollectionService>();
 

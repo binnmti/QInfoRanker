@@ -49,6 +49,25 @@ resource "azurerm_cognitive_deployment" "ensemble" {
   }
 }
 
+# Model deployment: dall-e-3 (for weekly summary image generation)
+# NOTE: Disabled - subscription does not have access to DALL-E 3 in EASTUS2
+# To enable, request access via Azure Portal or change region
+# resource "azurerm_cognitive_deployment" "dalle3" {
+#   name                 = var.dalle3_model
+#   cognitive_account_id = azurerm_cognitive_account.openai.id
+#
+#   model {
+#     format  = "OpenAI"
+#     name    = "dall-e-3"
+#     version = "3.0"
+#   }
+#
+#   sku {
+#     name     = "Standard"
+#     capacity = 1 # Images per minute
+#   }
+# }
+
 # Outputs
 output "openai_endpoint" {
   description = "Azure OpenAI endpoint URL"
@@ -70,3 +89,8 @@ output "ensemble_deployment_name" {
   description = "Ensemble model deployment name"
   value       = azurerm_cognitive_deployment.ensemble.name
 }
+
+# output "dalle3_deployment_name" {
+#   description = "DALL-E 3 model deployment name for image generation"
+#   value       = azurerm_cognitive_deployment.dalle3.name
+# }
