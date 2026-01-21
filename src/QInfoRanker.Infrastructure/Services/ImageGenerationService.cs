@@ -114,24 +114,32 @@ public class ImageGenerationService : IImageGenerationService
         // サマリー内容から主要トピックを抽出（見出しと重要なキーワード）
         var keyTopics = ExtractKeyTopics(summaryContent);
 
-        // 技術的なテーマを表す抽象的でモダンなイラストを生成するプロンプト
+        // グラフィカルアブストラクト / ビジュアルサマリー スタイルのプロンプト
         return $"""
-            Create a modern, sophisticated illustration for a technology article about "{keywordTerm}".
+            Create a graphical abstract (visual summary) for a weekly technology digest about "{keywordTerm}".
 
-            Article title: {summaryTitle}
-            Key topics covered: {keyTopics}
+            Summary title: {summaryTitle}
+            Key topics to visualize: {keyTopics}
 
-            Visual concept requirements:
-            - Visually represent the main themes: {keyTopics}
-            - Create a cohesive composition that connects these concepts
-            - Use symbolic or metaphorical imagery (e.g., semiconductor chips, data flows, human-machine interaction, financial charts)
-            - Professional and sophisticated look suitable for a tech news header
-            - Modern, clean aesthetic with depth and dimension
-            - Rich color palette that conveys the tone of the article
-            - No text, letters, or words in the image
-            - High contrast and visual clarity
+            IMPORTANT - Graphical Abstract Style Requirements:
+            - Create a structured, panel-style infographic layout
+            - Use clean icons, simple diagrams, and visual metaphors to represent each key topic
+            - Show relationships and connections between concepts using arrows or flow lines
+            - Organize information in a clear visual hierarchy (top-to-bottom or left-to-right flow)
+            - Use a consistent color scheme with 3-4 main colors
+            - Include simple pictograms representing: technology, data, innovation, research
+            - White or light gradient background for clarity
+            - Professional scientific/technical illustration style
+            - NO text, letters, numbers, or words anywhere in the image
+            - Each concept should be represented by a distinct visual element or icon
 
-            Style: Digital art, semi-abstract, editorial illustration quality
+            Visual elements to include:
+            - Central theme icon representing "{keywordTerm}"
+            - 3-4 connected sub-elements representing the key topics
+            - Connecting lines or arrows showing relationships
+            - Clean geometric shapes and modern flat design icons
+
+            Style: Scientific graphical abstract, infographic, flat design icons, clean vector-style illustration
             """;
     }
 

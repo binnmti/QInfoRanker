@@ -1,0 +1,17 @@
+<step title="Incoming Request" date="2026-01-10T15:44:57.468" instance="2d3f71" url="/api/zipdeploy?isAsync=true" method="POST" type="request" pid="837,1,7" Host="qinforanker.scm.azurewebsites.net" User-Agent="websdk/WebSdk_VisualStudio_18.0" Authorization="Bas..." Content-Type="application/zip; charset=utf-8" Expect="100-continue" Content-Length="20612128" X-ARR-LOG-ID="7858eb5c-31a8-4f6d-b79d-36ddf5b3949a" CLIENT-IP="125.8.134.101:55445" X-SITE-DEPLOYMENT-ID="qinforanker" WAS-DEFAULT-HOSTNAME="qinforanker.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/zipdeploy?isAsync=true" X-Client-IP="125.8.134.101" X-Client-Port="55445" Content-Encoding="utf-8" >
+  <step title="ZipPushDeploy" date="2026-01-10T15:45:02.808" >
+    <step title="ZipDeploy. Extract zip." date="2026-01-10T15:45:02.878" /><!-- duration: 18ms -->
+    <step title="None repository commit" date="2026-01-10T15:45:02.996" >
+      <step title="Commit id: d9fd3113-3180-4d59-99a5-e96ab4407c0c" date="2026-01-10T15:45:03.035" Message="N/A" AuthorName="N/A" AuthorEmail="N/A" /><!-- duration: 40ms -->
+    </step><!-- duration: 118ms -->
+    <step title="Starting PushDeployAsync" date="2026-01-10T15:45:03.184" /><!-- duration: 60ms -->
+    <step title="Writing artifact to /tmp/zipdeploy/0bc77e77-42a4-41e1-9add-08682d7244eb.zip" date="2026-01-10T15:45:03.593" >
+      <step title="Writing multipart request body to /tmp/zipdeploy/0bc77e77-42a4-41e1-9add-08682d7244eb.zip" date="2026-01-10T15:45:03.635" /><!-- duration: 21ms -->
+    </step><!-- duration: 1544ms -->
+    <step title="Start deployment in the background" date="2026-01-10T15:45:05.226" >
+      <step title="Acquiring Deployment Lock" date="2026-01-10T15:45:05.388" /><!-- duration: 12ms -->
+      <step title="Acquired Deployment Lock" date="2026-01-10T15:45:05.720" /><!-- duration: 17ms -->
+    </step><!-- duration: 842ms -->
+  </step><!-- duration: 3320ms -->
+  <step title="Outgoing response" date="2026-01-10T15:45:06.197" type="response" statusCode="202" statusText="Accepted" /><!-- duration: 9ms -->
+</step><!-- duration: 8744ms -->

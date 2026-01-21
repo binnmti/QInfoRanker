@@ -1,0 +1,11 @@
+<step title="Incoming Request" date="2026-01-19T13:45:28.367" instance="4562b3" url="/api/deployments/latest?deployer=OneDeploy&amp;time=2026-01-19_13-45-28Z" method="GET" type="request" pid="833,1,5" Host="qinforanker.scm.azurewebsites.net" User-Agent="GITHUBACTIONS_DeployWebAppToAzure_5c7ac40bc02038dfd3c6813e4dce9f632e5b42c5a4a73e5bd74495c5488bdb4c" Authorization="Bea..." Content-Type="application/json; charset=utf-8" Cookie="ARRAffinity=4562b3179e2e5e961ff052fe682508b509800aa0e87b304690cadeab5d89a923;Path=/;HttpOnly;Secure;Domain=qinforanker.scm.azurewebsites.net; ARRAffinitySameSite=4562b3179e2e5e961ff052fe682508b509800aa0e87b304690cadeab5d89a923;Path=/;HttpOnly;SameSite=None;Secure;Domain=qinforanker.scm.azurewebsites.net" Content-Length="0" X-ARR-LOG-ID="26541d8d-cfd1-4525-9010-b333c292e7b3" CLIENT-IP="20.169.74.20:3104" X-SITE-DEPLOYMENT-ID="qinforanker" WAS-DEFAULT-HOSTNAME="qinforanker.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/deployments/latest?deployer=OneDeploy&amp;time=2026-01-19_13-45-28Z" X-Client-IP="20.169.74.20" X-Client-Port="3104" >
+  <step title="Cleanup Xml Logs" date="2026-01-19T13:45:28.374" >
+    <step title="Cleanup Infos" date="2026-01-19T13:45:28.417" totalFiles="235" totalCleanup="75" /><!-- duration: 16ms -->
+  </step><!-- duration: 62ms -->
+  <step title="DeploymentService.GetResult" date="2026-01-19T13:45:28.512" >
+    <step title="DeploymentService.GetLatestDeployment" date="2026-01-19T13:45:28.515" >
+      <step title="DeploymentManager.GetResults" date="2026-01-19T13:45:28.521" /><!-- duration: 1176ms -->
+    </step><!-- duration: 1236ms -->
+  </step><!-- duration: 1247ms -->
+  <step title="Outgoing response" date="2026-01-19T13:45:29.924" type="response" statusCode="202" statusText="Accepted" /><!-- duration: 10ms -->
+</step><!-- duration: 1594ms -->
