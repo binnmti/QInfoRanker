@@ -1,6 +1,6 @@
 @page "/keywords"
 @attribute [Authorize]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IKeywordService KeywordService
 @inject ICollectionQueue CollectionQueue
 @inject NavigationManager Navigation

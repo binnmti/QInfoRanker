@@ -2,7 +2,7 @@
 @page "/weekly"
 @page "/weekly/{KeywordParam?}"
 @attribute [AllowAnonymous]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using QInfoRanker.Core.Entities
 @using QInfoRanker.Core.Enums
 @using QInfoRanker.Core.Interfaces.Services
@@ -15,18 +15,27 @@
 <PageTitle>今週のおすすめ - QInfoRanker</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="mb-0">今週のおすすめ</h1>
     <div class="d-flex align-items-center gap-2">
-        <div class="btn-group" role="group">
-            @foreach (var keyword in keywords)
-            {
-                <a href="/weekly/@keyword.GetUrlIdentifier()"
-                   class="btn btn-sm @(selectedKeywordId == keyword.Id ? "btn-primary" : "btn-outline-primary")">
-                    @keyword.Term
-                </a>
-            }
-        </div>
+        @if (selectedKeyword != null)
+        {
+            <span class="badge bg-primary fs-6 fw-normal py-2 px-3">@selectedKeyword.Term</span>
+        }
+        <h1 class="mb-0">今週のおすすめ</h1>
     </div>
+    @if (keywords.Count > 1)
+    {
+        <div class="d-flex align-items-center gap-2">
+            <div class="btn-group" role="group">
+                @foreach (var keyword in keywords)
+                {
+                    <a href="/weekly/@keyword.GetUrlIdentifier()"
+                       class="btn btn-sm @(selectedKeywordId == keyword.Id ? "btn-primary" : "btn-outline-primary")">
+                        @keyword.Term
+                    </a>
+                }
+            </div>
+        </div>
+    }
 </div>
 
 <p class="text-muted small mb-3">
@@ -411,6 +420,9 @@ else
 
     private List<Keyword> keywords = new();
     private int? selectedKeywordId;
+    private Keyword? selectedKeyword => selectedKeywordId.HasValue
+        ? keywords.FirstOrDefault(k => k.Id == selectedKeywordId.Value)
+        : null;
     private bool isLoading = true;
     private DateTime weekStart;
     private DateTime weekEnd;

@@ -1,6 +1,6 @@
 @page "/sources"
 @attribute [Authorize]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject ISourceService SourceService
 
 <PageTitle>Sources - QInfoRanker</PageTitle>

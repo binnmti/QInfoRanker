@@ -1,6 +1,6 @@
 @page "/settings"
 @attribute [Authorize]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Microsoft.Extensions.Options
 @using QInfoRanker.Infrastructure.Scoring
 @inject IScoringService ScoringService
