@@ -20,12 +20,20 @@ public class DatabaseInitializationService : BackgroundService
     /// データベース初期化が完了したかどうかを示すフラグ。
     /// ヘルスチェックなどで参照可能。
     /// </summary>
-    public static bool IsInitialized { get; private set; }
+    /// <remarks>
+    /// volatile修飾子により、マルチスレッド環境での可視性を保証。
+    /// </remarks>
+    private static volatile bool _isInitialized;
+    public static bool IsInitialized => _isInitialized;
 
     /// <summary>
-    /// 初期化中にエラーが発生した場合のメッセージ。
+    /// 初期化中にエラーが発生したかどうかを示すフラグ。
     /// </summary>
-    public static string? InitializationError { get; private set; }
+    /// <remarks>
+    /// セキュリティ上、エラー詳細は公開せずフラグのみ。詳細はログに記録される。
+    /// </remarks>
+    private static volatile bool _hasError;
+    public static bool HasError => _hasError;
 
     public DatabaseInitializationService(
         IServiceScopeFactory scopeFactory,
@@ -49,14 +57,19 @@ public class DatabaseInitializationService : BackgroundService
             var seedSampleData = _configuration.GetValue<bool>("SeedSampleData");
 
             // マイグレーションとシードをバックグラウンドで実行
-            await DbSeeder.SeedAsync(context, seedSampleData);
+            await DbSeeder.SeedAsync(context, seedSampleData, stoppingToken);
 
-            IsInitialized = true;
+            _isInitialized = true;
             _logger.LogInformation("Database initialization completed successfully.");
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // シャットダウン時のキャンセルは正常終了として扱う
+            _logger.LogInformation("Database initialization was cancelled due to application shutdown.");
         }
         catch (Exception ex)
         {
-            InitializationError = ex.Message;
+            _hasError = true;
             _logger.LogError(ex, "Failed to initialize database. Error: {Message}", ex.Message);
 
             // 致命的なエラーではないので、アプリケーションは継続

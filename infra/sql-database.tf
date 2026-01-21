@@ -1,4 +1,4 @@
-# Azure SQL Database (Free Tier) with Full-Text Search
+# Azure SQL Database (General Purpose Serverless) with Full-Text Search
 
 # SQL Server
 resource "azurerm_mssql_server" "main" {
