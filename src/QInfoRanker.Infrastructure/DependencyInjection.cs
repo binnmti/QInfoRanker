@@ -127,6 +127,10 @@ public static class DependencyInjection
         // Progress notification service
         services.AddScoped<ICollectionProgressNotifier, CollectionProgressNotifier>();
 
+        // Database initialization service (runs migrations and seeding in background)
+        // This prevents blocking the application startup on database operations
+        services.AddHostedService<DatabaseInitializationService>();
+
         return services;
     }
 }

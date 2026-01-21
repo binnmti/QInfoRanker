@@ -11,36 +11,37 @@ public static class DbSeeder
     /// </summary>
     /// <param name="context">DBコンテキスト</param>
     /// <param name="seedSampleData">サンプルキーワードを作成するか（開発用、本番ではfalse推奨）</param>
-    public static async Task SeedAsync(AppDbContext context, bool seedSampleData = false)
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    public static async Task SeedAsync(AppDbContext context, bool seedSampleData = false, CancellationToken cancellationToken = default)
     {
         // マイグレーションを適用（既存データは保持、新しいカラム等を追加）
-        await context.Database.MigrateAsync();
+        await context.Database.MigrateAsync(cancellationToken);
 
         // グローバルソースを初期化（全キーワード共通）
-        if (!await context.Sources.AnyAsync())
+        if (!await context.Sources.AnyAsync(cancellationToken))
         {
-            await SeedSourcesAsync(context);
+            await SeedSourcesAsync(context, cancellationToken);
         }
         else
         {
             // 既存SourceのCategoryを更新（マイグレーションで追加されたカラム）
-            await UpdateSourceCategoriesAsync(context);
+            await UpdateSourceCategoriesAsync(context, cancellationToken);
         }
 
         // サンプルデータは明示的に有効化された場合のみ作成（本番環境では不要）
-        if (seedSampleData && !await context.Keywords.AnyAsync())
+        if (seedSampleData && !await context.Keywords.AnyAsync(cancellationToken))
         {
-            await SeedInitialKeywordAsync(context);
+            await SeedInitialKeywordAsync(context, cancellationToken);
         }
 
         // 既存キーワードのSlugを自動生成（未設定のもののみ）
-        await GenerateMissingSlugsAsync(context);
+        await GenerateMissingSlugsAsync(context, cancellationToken);
     }
 
     /// <summary>
     /// グローバルソースのシード（全キーワード共通で使用）
     /// </summary>
-    private static async Task SeedSourcesAsync(AppDbContext context)
+    private static async Task SeedSourcesAsync(AppDbContext context, CancellationToken cancellationToken)
     {
         var sources = new List<Source>
         {
@@ -213,10 +214,10 @@ public static class DbSeeder
         };
 
         context.Sources.AddRange(sources);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(cancellationToken);
     }
 
-    private static async Task SeedInitialKeywordAsync(AppDbContext context)
+    private static async Task SeedInitialKeywordAsync(AppDbContext context, CancellationToken cancellationToken)
     {
         var keyword = new Keyword
         {
@@ -228,7 +229,7 @@ public static class DbSeeder
         };
 
         context.Keywords.Add(keyword);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -238,13 +239,13 @@ public static class DbSeeder
     /// マイグレーションが適用されていない場合（Slugカラムが存在しない場合）は
     /// 例外をキャッチしてスキップする。次回マイグレーション適用後に実行される。
     /// </remarks>
-    private static async Task GenerateMissingSlugsAsync(AppDbContext context)
+    private static async Task GenerateMissingSlugsAsync(AppDbContext context, CancellationToken cancellationToken)
     {
         try
         {
             var keywordsWithoutSlug = await context.Keywords
                 .Where(k => k.Slug == null && k.Aliases != null)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             if (!keywordsWithoutSlug.Any())
                 return;
@@ -252,7 +253,7 @@ public static class DbSeeder
             var existingSlugsQuery = await context.Keywords
                 .Where(k => k.Slug != null)
                 .Select(k => k.Slug!)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
             var existingSlugs = existingSlugsQuery.ToHashSet();
 
             foreach (var keyword in keywordsWithoutSlug)
@@ -272,7 +273,7 @@ public static class DbSeeder
                 existingSlugs.Add(slug);
             }
 
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(cancellationToken);
         }
         catch (Microsoft.Data.Sqlite.SqliteException)
         {
@@ -288,7 +289,7 @@ public static class DbSeeder
     /// <summary>
     /// 既存SourceのCategoryを更新（マイグレーションで追加されたカラム用）
     /// </summary>
-    private static async Task UpdateSourceCategoriesAsync(AppDbContext context)
+    private static async Task UpdateSourceCategoriesAsync(AppDbContext context, CancellationToken cancellationToken)
     {
         // ソース名とカテゴリの対応辞書
         var categoryMap = new Dictionary<string, SourceCategory>
@@ -319,7 +320,7 @@ public static class DbSeeder
             { "Note.com", SourceCategory.Entertainment },
         };
 
-        var sources = await context.Sources.ToListAsync();
+        var sources = await context.Sources.ToListAsync(cancellationToken);
         var updated = false;
 
         foreach (var source in sources)
@@ -336,7 +337,7 @@ public static class DbSeeder
 
         if (updated)
         {
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(cancellationToken);
         }
     }
 }

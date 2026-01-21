@@ -1,4 +1,4 @@
-# Azure SQL Database (Free Tier) with Full-Text Search
+# Azure SQL Database (General Purpose Serverless) with Full-Text Search
 
 # SQL Server
 resource "azurerm_mssql_server" "main" {
@@ -21,17 +21,17 @@ resource "azurerm_mssql_server" "main" {
   tags = local.common_tags
 }
 
-# SQL Database - Free Tier
-# Free tier: 100,000 vCore seconds/month + 32GB storage
+# SQL Database - General Purpose Serverless
+# Serverless: 使用量に応じた課金、auto_pause無効化でコールドスタートを防止
 resource "azurerm_mssql_database" "main" {
   name                        = "qinforanker-db"
   server_id                   = azurerm_mssql_server.main.id
   collation                   = "Japanese_CI_AS" # Japanese collation for proper sorting
-  max_size_gb                 = 32               # Maximum for free tier
+  max_size_gb                 = 32               # Maximum storage
   sku_name                    = "GP_S_Gen5_1"    # General Purpose Serverless Gen5 1 vCore
   min_capacity                = 0.5              # Minimum vCores when active
-  auto_pause_delay_in_minutes = 60               # Auto-pause after 1 hour of inactivity
-  zone_redundant              = false            # Not available for free tier
+  auto_pause_delay_in_minutes = -1               # 自動停止を無効化してコールドスタートを防止
+  zone_redundant              = false            # Not available for serverless tier
 
   # Short-term backup retention
   short_term_retention_policy {

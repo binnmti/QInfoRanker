@@ -5,8 +5,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 using QInfoRanker.Infrastructure;
-using QInfoRanker.Web;
 using QInfoRanker.Infrastructure.Data;
+using QInfoRanker.Web;
 using QInfoRanker.Web.Components;
 using QInfoRanker.Web.Hubs;
 
@@ -70,18 +70,16 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 // ヘルスチェック（Azure App Service 用）
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AppDbContext>("database", tags: new[] { "db", "sql" });
+    .AddDbContextCheck<AppDbContext>("database", tags: new[] { "db", "sql" })
+    .AddCheck<QInfoRanker.Infrastructure.Services.DatabaseInitializationHealthCheck>(
+        "db-initialization",
+        tags: new[] { "db", "startup" });
 
 var app = builder.Build();
 
-// Initialize database
-using (var scope = app.Services.CreateScope())
-{
-    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    // サンプルデータは設定で制御（デフォルト: false、開発時のみtrueに設定可）
-    var seedSampleData = builder.Configuration.GetValue<bool>("SeedSampleData");
-    await DbSeeder.SeedAsync(context, seedSampleData);
-}
+// Database initialization is now handled by DatabaseInitializationService (HostedService)
+// This runs in background and doesn't block application startup
+// See: Infrastructure/Services/DatabaseInitializationService.cs
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
