@@ -91,6 +91,7 @@
                         </AuthorizeView>
                     </div>
                 </div>
+                @* 画像表示は一時的に無効化
                 @if (!string.IsNullOrEmpty(currentSummary.ImageUrl))
                 {
                     <div class="summary-image mb-3">
@@ -100,6 +101,7 @@
                              style="max-height: 300px; width: 100%; object-fit: cover;" />
                     </div>
                 }
+                *@
                 <div class="summary-content">
                     @((MarkupString)RenderMarkdown(currentSummary.Content))
                 </div>
@@ -830,9 +832,28 @@ else
     private static string RenderMarkdown(string markdown)
     {
         if (string.IsNullOrEmpty(markdown)) return string.Empty;
+
+        // MarkdownリンクのURLに含まれる空白をトリム
+        // パターン: [text](url) -> URLの前後の空白を除去
+        markdown = TrimMarkdownLinkUrls(markdown);
+
         var html = Markdown.ToHtml(markdown, _markdownPipeline);
         html = html.Replace("<a href=", "<a target=\"_blank\" rel=\"noopener noreferrer\" href=");
         return html;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex _markdownLinkRegex =
+        new(@"\[([^\]]+)\]\(\s*([^\s\)]+)\s*\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static string TrimMarkdownLinkUrls(string markdown)
+    {
+        // [text]( url ) -> [text](url) のようにURLの空白をトリム
+        return _markdownLinkRegex.Replace(markdown, match =>
+        {
+            var text = match.Groups[1].Value;
+            var url = match.Groups[2].Value.Trim();
+            return $"[{text}]({url})";
+        });
     }
 
     private static string? GetTooltipText(Article article)

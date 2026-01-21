@@ -452,11 +452,10 @@ terraform.rc
 # Temporary files and archives
 *.zip
 app-logs/
+webapp-logs*/
 
 # Docker publish output
 **/obj/Docker/
 
 # Claude Code temporary files
 tmpclaude-*
-webapp-logs/
-webapp-logs*
