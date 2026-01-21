@@ -1,4 +1,0 @@
-<step title="Incoming Request" date="2026-01-10T16:13:59.993" instance="2d3f71" url="/dump" method="GET" type="request" pid="833,1,21" Host="qinforanker.scm.azurewebsites.net" User-Agent="AZURECLI/2.67.0 (MSI)" Accept-Encoding="identity" Authorization="Bas..." x-ms-client-request-id="5d4e4e40-ee3f-11f0-a40d-3cdc0360c50a" X-ARR-LOG-ID="5d4e4e40-ee3f-11f0-a40d-3cdc0360c50a" CLIENT-IP="125.8.134.101:52467" X-SITE-DEPLOYMENT-ID="qinforanker" WAS-DEFAULT-HOSTNAME="qinforanker.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/dump" X-Client-IP="125.8.134.101" X-Client-Port="52467" >
-  <step title="Cleanup Xml Logs" date="2026-01-10T16:13:59.998" /><!-- duration: 19ms -->
-  <step title="Outgoing response" date="2026-01-10T16:14:01.415" type="response" statusCode="200" statusText="OK" /><!-- duration: 6ms -->
-</step><!-- duration: 1432ms -->

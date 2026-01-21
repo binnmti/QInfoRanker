@@ -1,6 +1,0 @@
-<step title="Incoming Request" date="2026-01-10T15:58:11.671" instance="2d3f71" url="/api/deployments/61df17bd-6194-48b0-ae6f-a027544b2aaa/log" method="GET" type="request" pid="833,1,18" Accept="*/*" Host="qinforanker.scm.azurewebsites.net" User-Agent="AZURECLI/2.67.0 (MSI)" Accept-Encoding="gzip, deflate" Authorization="Bas..." x-ms-client-request-id="2843832e-ee3d-11f0-bb66-3cdc0360c50a" X-ARR-LOG-ID="2843832e-ee3d-11f0-bb66-3cdc0360c50a" CLIENT-IP="125.8.134.101:55822" X-SITE-DEPLOYMENT-ID="qinforanker" WAS-DEFAULT-HOSTNAME="qinforanker.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/deployments/61df17bd-6194-48b0-ae6f-a027544b2aaa/log" X-Client-IP="125.8.134.101" X-Client-Port="55822" >
-  <step title="DeploymentService.GetLogEntry" date="2026-01-10T15:58:11.684" >
-    <step title="DeploymentManager.GetLogEntries(id:61df17bd-6194-48b0-ae6f-a027544b2aaa)" date="2026-01-10T15:58:11.688" /><!-- duration: 104ms -->
-  </step><!-- duration: 121ms -->
-  <step title="Outgoing response" date="2026-01-10T15:58:11.822" type="response" statusCode="200" statusText="OK" /><!-- duration: 13ms -->
-</step><!-- duration: 169ms -->

@@ -1,9 +1,0 @@
-<step title="Incoming Request" date="2026-01-11T13:03:55.293" instance="2d3f71" url="/api/deployments/latest?deployer=Push-Deployer&amp;time=2026-01-11_13-03-54Z" method="GET" type="request" pid="833,1,7" Host="qinforanker.scm.azurewebsites.net" User-Agent="websdk/WebSdk_VisualStudio_18.0 websdk/WebSdk_VisualStudio_18.0" Authorization="Bas..." Cookie="ARRAffinity=2d3f71bcd13042f517514f84e5ad65356de2fbe1819289910248bb8b592673a4; ARRAffinitySameSite=2d3f71bcd13042f517514f84e5ad65356de2fbe1819289910248bb8b592673a4" X-ARR-LOG-ID="056d6c0c-2694-45a2-ac09-0b1c89820d18" CLIENT-IP="125.8.134.101:57510" X-SITE-DEPLOYMENT-ID="qinforanker" WAS-DEFAULT-HOSTNAME="qinforanker.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/deployments/latest?deployer=Push-Deployer&amp;time=2026-01-11_13-03-54Z" X-Client-IP="125.8.134.101" X-Client-Port="57510" >
-  <step title="Cleanup Xml Logs" date="2026-01-11T13:03:55.300" /><!-- duration: 28ms -->
-  <step title="DeploymentService.GetResult" date="2026-01-11T13:03:55.381" >
-    <step title="DeploymentService.GetLatestDeployment" date="2026-01-11T13:03:55.390" >
-      <step title="DeploymentManager.GetResults" date="2026-01-11T13:03:55.396" /><!-- duration: 918ms -->
-    </step><!-- duration: 973ms -->
-  </step><!-- duration: 989ms -->
-  <step title="Outgoing response" date="2026-01-11T13:03:56.435" type="response" statusCode="202" statusText="Accepted" /><!-- duration: 6ms -->
-</step><!-- duration: 1155ms -->

@@ -1,8 +1,0 @@
-<step title="Incoming Request" date="2026-01-10T15:57:11.664" instance="2d3f71" url="/api/deployments/latest" method="GET" type="request" pid="833,1,16" Accept="*/*" Host="qinforanker.scm.azurewebsites.net" User-Agent="AZURECLI/2.67.0 (MSI)" Accept-Encoding="gzip, deflate" Authorization="Bas..." x-ms-client-request-id="fc8aa8b6-ee3c-11f0-82ff-3cdc0360c50a" X-ARR-LOG-ID="fc8aa8b6-ee3c-11f0-82ff-3cdc0360c50a" CLIENT-IP="125.8.134.101:55778" X-SITE-DEPLOYMENT-ID="qinforanker" WAS-DEFAULT-HOSTNAME="qinforanker.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/deployments/latest" X-Client-IP="125.8.134.101" X-Client-Port="55778" >
-  <step title="DeploymentService.GetResult" date="2026-01-10T15:57:11.783" >
-    <step title="DeploymentService.GetLatestDeployment" date="2026-01-10T15:57:11.802" >
-      <step title="DeploymentManager.GetResults" date="2026-01-10T15:57:11.819" /><!-- duration: 2364ms -->
-    </step><!-- duration: 2462ms -->
-  </step><!-- duration: 2520ms -->
-  <step title="Outgoing response" date="2026-01-10T15:57:14.323" type="response" statusCode="202" statusText="Accepted" /><!-- duration: 21ms -->
-</step><!-- duration: 2740ms -->

@@ -1,3 +1,0 @@
-2026-01-12T12:26:38  Startup Request, url: /logstream, method: GET, type: request, pid: 833,1,7, ScmType: LocalGit
-2026-01-12T12:27:39    Error occurred, type: error, text: LogStreamManager: ProcessRequest end
-2026-01-12T12:27:39  Error occurred, type: error, text: LogStreamManager: Inside Reset

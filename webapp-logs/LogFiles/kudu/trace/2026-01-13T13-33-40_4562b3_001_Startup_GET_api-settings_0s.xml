@@ -1,3 +1,0 @@
-<step title="Startup Request" date="2026-01-13T13:33:40.953" instance="4562b3" url="/api/settings" method="GET" type="request" pid="831,1,7" ScmType="LocalGit" >
-  <step title="Cleanup Xml Logs" date="2026-01-13T13:33:40.958" /><!-- duration: 12ms -->
-</step><!-- duration: 25ms -->

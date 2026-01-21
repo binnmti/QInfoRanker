@@ -1,5 +1,0 @@
-<step title="Incoming Request" date="2026-01-10T15:28:20.709" instance="2d3f71" url="/logstream" method="GET" type="request" pid="833,1,5" Host="qinforanker.scm.azurewebsites.net" User-Agent="AZURECLI/2.67.0" Accept-Encoding="identity" Authorization="Bas..." x-ms-client-request-id="e8a50e04-ee38-11f0-99a5-3cdc0360c50a" X-ARR-LOG-ID="e8a50e04-ee38-11f0-99a5-3cdc0360c50a" CLIENT-IP="125.8.134.101:63026" X-SITE-DEPLOYMENT-ID="qinforanker" WAS-DEFAULT-HOSTNAME="qinforanker.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/logstream" X-Client-IP="125.8.134.101" X-Client-Port="63026" >
-  <step title="LogStreamHandlerMiddleware.Invoke" date="2026-01-10T15:28:20.772" /><!-- duration: 158ms -->
-  <step title="Error occurred" date="2026-01-10T15:30:20.931" type="error" text="LogStreamManager: ProcessRequest end" /><!-- duration: 4ms -->
-  <step title="Outgoing response" date="2026-01-10T15:30:20.948" type="response" statusCode="200" statusText="OK" /><!-- duration: 5ms -->
-</step><!-- duration: 120249ms -->

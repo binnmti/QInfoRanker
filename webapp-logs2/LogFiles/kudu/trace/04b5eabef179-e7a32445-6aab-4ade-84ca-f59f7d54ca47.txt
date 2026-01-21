@@ -1,1 +1,0 @@
-2026-01-12T12:11:32  Startup Request, url: /dump, method: GET, type: request, pid: 830,1,18, ScmType: LocalGit
